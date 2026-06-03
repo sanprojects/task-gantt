@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type GanttPlugin from "./main";
 import { StatusDef, ZoomMode } from "./types";
+import { t as tr } from "./i18n"; // tr() … addText((t)=>) のコンポーネント t との衝突回避 / aliased to avoid clashing with the `t` component param
 
 // プラグイン設定 / Plugin settings
 export interface GanttSettings {
@@ -56,11 +57,11 @@ export class GanttSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("既定フォルダ / Default folder")
-      .setDesc("リボンでフォルダ未選択のときに使う既定フォルダ。通常はフォルダを右クリック→「Gantt で開く」、またはフォルダ選択中にリボンを押します。/ Fallback folder; usually right-click a folder → Open as Gantt.")
+      .setName(tr().setDefaultFolderName)
+      .setDesc(tr().setDefaultFolderDesc)
       .addText((t) =>
         t
-          .setPlaceholder("例: Projects/お掃除")
+          .setPlaceholder(tr().setDefaultFolderPlaceholder)
           .setValue(this.plugin.settings.rootFolder)
           .onChange(async (v) => {
             this.plugin.settings.rootFolder = v.trim();
@@ -69,8 +70,8 @@ export class GanttSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("サブフォルダを再帰 / Recurse subfolders")
-      .setDesc("直下のサブフォルダをグループ、その中のファイルをタスクにします。/ Subfolders become groups.")
+      .setName(tr().setRecurseName)
+      .setDesc(tr().setRecurseDesc)
       .addToggle((t) =>
         t.setValue(this.plugin.settings.recurse).onChange(async (v) => {
           this.plugin.settings.recurse = v;
@@ -79,7 +80,7 @@ export class GanttSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("既定のズーム / Default zoom")
+      .setName(tr().setDefaultZoomName)
       .addDropdown((dd) =>
         dd
           .addOption("Day", "Day")
@@ -92,7 +93,7 @@ export class GanttSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).setName("ステータス / Statuses").setHeading();
+    new Setting(containerEl).setName(tr().setStatusesHeading).setHeading();
     this.plugin.settings.statuses.forEach((status, index) => {
       const setting = new Setting(containerEl)
         .addText((t) =>
@@ -114,7 +115,7 @@ export class GanttSettingTab extends PluginSettingTab {
           })
         )
         .addExtraButton((b) =>
-          b.setIcon("trash").setTooltip("削除 / Delete").onClick(async () => {
+          b.setIcon("trash").setTooltip(tr().setDeleteTooltip).onClick(async () => {
             this.plugin.settings.statuses.splice(index, 1);
             await this.plugin.saveSettings();
             this.display();
@@ -124,14 +125,14 @@ export class GanttSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl).addButton((b) =>
-      b.setButtonText("ステータスを追加 / Add status").setCta().onClick(async () => {
+      b.setButtonText(tr().setAddStatus).setCta().onClick(async () => {
         this.plugin.settings.statuses.push({ id: "new", label: "New", color: "#888888" });
         await this.plugin.saveSettings();
         this.display();
       })
     );
 
-    new Setting(containerEl).setName("フロントマターのキー名 / Frontmatter keys").setHeading();
+    new Setting(containerEl).setName(tr().setKeysHeading).setHeading();
     const keys = this.plugin.settings.keys;
     (Object.keys(keys) as (keyof typeof keys)[]).forEach((k) => {
       new Setting(containerEl).setName(k).addText((t) =>

@@ -23,6 +23,7 @@ import {
   buildTicks,
   todayIndex,
 } from "./timeline";
+import { t as tr } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
 
 const ROW_H = 30; // 行の高さ（表とタイムラインで共通）/ shared row height
 const HEAD_H = 40; // ヘッダー高さ / header height
@@ -142,7 +143,7 @@ export class GanttView extends ItemView {
     this.gridHost.empty();
     if (this.tasks.length === 0) {
       this.gridHost.createDiv({ cls: "ogantt-empty" }).setText(
-        `「${this.folder || "vault"}」配下にタスク（.md）が見つかりません。`
+        tr().emptyMessage(this.folder || "vault")
       );
       return;
     }
@@ -169,14 +170,14 @@ export class GanttView extends ItemView {
     // 取り消しボタン / undo button
     const undo = bar.createEl("button");
     setIcon(undo, "undo-2");
-    undo.setAttr("aria-label", "取り消し (Ctrl+Z) / Undo");
+    undo.setAttr("aria-label", tr().undoAria);
     undo.onclick = () => void this.undo();
     this.undoBtn = undo;
     this.updateUndoButton();
 
     const reload = bar.createEl("button");
     setIcon(reload, "refresh-cw");
-    reload.setAttr("aria-label", "再読み込み / Reload");
+    reload.setAttr("aria-label", tr().reloadAria);
     reload.onclick = () => void this.refresh();
   }
 
@@ -197,14 +198,14 @@ export class GanttView extends ItemView {
   private async undo(): Promise<void> {
     const entry = this.undoStack.pop();
     if (!entry) {
-      new Notice("取り消す操作がありません / Nothing to undo");
+      new Notice(tr().nothingToUndo);
       return;
     }
     for (const [path, content] of entry.files) {
       const f = this.app.vault.getAbstractFileByPath(path);
       if (f instanceof TFile) await this.app.vault.modify(f, content);
     }
-    new Notice(`取り消しました: ${entry.label} / Undone`);
+    new Notice(tr().undone(entry.label));
     await this.refresh();
     this.updateUndoButton();
   }
@@ -227,9 +228,9 @@ export class GanttView extends ItemView {
 
     // (1) 左上の角＝表ヘッダー / top-left corner = table header
     const corner = grid.createDiv({ cls: "ogantt-corner" });
-    corner.createDiv({ cls: "ogantt-th ogantt-th-name", text: "作業 / Task" });
-    corner.createDiv({ cls: "ogantt-th", text: "開始" });
-    corner.createDiv({ cls: "ogantt-th", text: "期限" });
+    corner.createDiv({ cls: "ogantt-th ogantt-th-name", text: tr().colTask });
+    corner.createDiv({ cls: "ogantt-th", text: tr().colStart });
+    corner.createDiv({ cls: "ogantt-th", text: tr().colDue });
 
     // (2) 日付軸 / date axis
     const axis = grid.createDiv({ cls: "ogantt-axis" });
@@ -441,9 +442,9 @@ export class GanttView extends ItemView {
         else if (sourceEnd === "start" && targetEnd === "start") type = "SS";
         else type = null; // start→finish = SF は未対応 / SF unsupported
         if (type == null) {
-          new Notice("SF（開始→終了）は未対応です。/ SF dependency is not supported.");
+          new Notice(tr().sfUnsupported);
         } else {
-          await this.pushUndo(`依存の作成 (${type}) / add dependency`);
+          await this.pushUndo(tr().undoAddDep(type));
           await addDependency(this.app, this.plugin.settings, target.path, source.path, type);
           // メモリにも依存を反映（metadataCache 更新前でも整列できるように）/ reflect dep in-memory
           target.deps = target.deps.filter((dd) => dd.path !== source.path);
@@ -621,7 +622,7 @@ export class GanttView extends ItemView {
 
         const hit = this.svgEl("path", { d, class: "ogantt-dep-hit" });
         const tip = this.svgEl("title", {});
-        tip.textContent = `${depType} 依存 — クリックで切断 / Click to remove`;
+        tip.textContent = tr().depTooltip(depType);
         hit.appendChild(tip);
         depG.appendChild(hit);
         depG.appendChild(this.svgEl("path", { d, class: "ogantt-dep" + (violation ? " is-violation" : "") }));
@@ -649,7 +650,7 @@ export class GanttView extends ItemView {
         // クリック → 確認なしで即切断（Ctrl+Z で取り消し可）/ click → remove immediately (undo with Ctrl+Z)
         depG.addEventListener("click", async (ev: MouseEvent) => {
           ev.stopPropagation();
-          await this.pushUndo(`依存の切断 (${depType}) / remove dependency`);
+          await this.pushUndo(tr().undoRemoveDep(depType));
           await removeDependency(this.app, this.plugin.settings, succPath, predPath);
           await this.refresh();
         });
@@ -702,7 +703,7 @@ export class GanttView extends ItemView {
         handle.removeEventListener("pointerup", onUp);
         const dxDays = Math.round((e.clientX - startX) / this.ppd);
         if (dxDays !== 0) {
-          await this.pushUndo(`「${task.name}」の日程変更 / reschedule`);
+          await this.pushUndo(tr().undoReschedule(task.name));
           if (milestone) {
             const nd = dayToStr(dayIndex(task.end ?? task.start!) + dxDays);
             await writeDates(this.app, this.plugin.settings, task.path, nd, nd, true);
@@ -767,7 +768,7 @@ export class GanttView extends ItemView {
     });
     const openBtn = header.createEl("button", { cls: "clickable-icon" });
     setIcon(openBtn, "external-link");
-    openBtn.setAttr("aria-label", "ノートで開く / Open as note");
+    openBtn.setAttr("aria-label", tr().openAsNote);
     openBtn.onclick = () => void this.app.workspace.openLinkText(this.selectedPath!, "", true);
     const closeBtn = header.createEl("button", { cls: "clickable-icon" });
     setIcon(closeBtn, "x");
@@ -782,12 +783,12 @@ export class GanttView extends ItemView {
 
     // 開始 / start（マイルストーンは非表示）/ start (hidden for milestones)
     if (!t.milestone) {
-      const startIn = fieldRow("開始 / Start").createEl("input", { type: "date" });
+      const startIn = fieldRow(tr().fieldStart).createEl("input", { type: "date" });
       startIn.value = t.start ?? "";
       startIn.addEventListener("change", () => void this.saveField(k.start, startIn.value));
     }
     // 終了 or 期限 / end (label "期限" when milestone)
-    const endIn = fieldRow(t.milestone ? "期限 / Due" : "終了 / End").createEl("input", { type: "date" });
+    const endIn = fieldRow(t.milestone ? tr().fieldDue : tr().fieldEnd).createEl("input", { type: "date" });
     endIn.value = t.end ?? "";
     endIn.addEventListener("change", () => void this.saveField(k.end, endIn.value));
 

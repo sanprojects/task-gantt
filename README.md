@@ -11,6 +11,9 @@ A ClickUp/Wrike-style Gantt for Obsidian. One Markdown file = one task; a config
 4. バーを**ドラッグ／端をリサイズ**すると、そのファイルのフロントマター `start`/`end` に書き戻します。
 5. タスクをクリックすると、右から**詳細パネル**（日付・状態・担当・本文）がスライドインします。
 
+UI 表示は Obsidian の表示言語に追従します（日本語なら日本語、それ以外は英語）。
+The UI follows Obsidian's display language (Japanese when set to Japanese, English otherwise).
+
 ## タスクの書き方 / Task frontmatter
 
 各タスクは 1 つの Markdown ファイル。スケジュールはフロントマター、説明は本文に書きます。

@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf, TFolder, TFile, Menu, TAbstractFile } from "obsi
 import { GanttSettings, DEFAULT_SETTINGS, GanttSettingTab } from "./settings";
 import { GanttView } from "./view";
 import { VIEW_TYPE_GANTT, GanttViewState } from "./types";
+import { t } from "./i18n";
 
 export default class GanttPlugin extends Plugin {
   settings!: GanttSettings;
@@ -12,13 +13,13 @@ export default class GanttPlugin extends Plugin {
     this.registerView(VIEW_TYPE_GANTT, (leaf) => new GanttView(leaf, this));
 
     // 一番左の列（リボン）のアイコン＝フォーカス中フォルダで開く / ribbon opens the focused folder
-    this.addRibbonIcon("gantt-chart", "Gantt を開く / Open Gantt", () => {
+    this.addRibbonIcon("gantt-chart", t().ribbonOpen, () => {
       void this.activateView(this.currentFolder());
     });
 
     this.addCommand({
       id: "open-gantt",
-      name: "Gantt を開く（現在のフォルダ）/ Open Gantt for current folder",
+      name: t().commandOpen,
       callback: () => void this.activateView(this.currentFolder()),
     });
 
@@ -28,7 +29,7 @@ export default class GanttPlugin extends Plugin {
         if (file instanceof TFolder) {
           menu.addItem((item) =>
             item
-              .setTitle("Gantt で開く / Open as Gantt")
+              .setTitle(t().menuOpen)
               .setIcon("gantt-chart")
               .onClick(() => void this.activateView(file.path))
           );
