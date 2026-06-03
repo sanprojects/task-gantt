@@ -59,6 +59,8 @@ The body is the task description (shown in the detail panel).
 | `progress` | Progress 0–100 (fill inside the bar). |
 | `milestone` | `true` for a diamond (zero duration). |
 
+**Milestones:** a task that has only an `end` date (no `start`) is automatically treated as a milestone and drawn as a diamond. Setting `milestone: true` does the same. To turn a milestone back into a ranged task, just give it a `start` date (e.g. in the detail panel).
+
 The task name is the file name (without extension); the group is the parent subfolder name. Frontmatter key names can be changed in settings.
 
 Sample data for a quick try lives in `examples/Cleaning Project お掃除プロジェクト/` (point the target folder at it).
@@ -161,6 +163,8 @@ after:
 | `after` | 先行タスクへの wikilink 配列（依存＝矢印、違反は赤） |
 | `progress` | 進捗 0–100（バー内の塗り） |
 | `milestone` | `true` で菱形（期間ゼロ） |
+
+**マイルストーン：** `end`（終了日）だけがあり `start`（開始日）が無いタスクは、自動的にマイルストーンと判定され菱形で描画されます。`milestone: true` を指定しても同じです。マイルストーンを通常タスクに戻すには、`start`（開始日）を与えてください（詳細パネルからでも可）。
 
 タスク名はファイル名（拡張子なし）。グループは直上のサブフォルダ名。フロントマターのキー名は設定で変更できます。
 
