@@ -1,4 +1,4 @@
-# Gantt for Obsidian
+# Task Gantt
 
 **English** | [日本語](#日本語)
 
@@ -93,7 +93,7 @@ MIT — see [`LICENSE`](./LICENSE).
 
 # 日本語
 
-[English](#gantt-for-obsidian) | **日本語**
+[English](#task-gantt) | **日本語**
 
 プロジェクト管理ツールのようなタスク管理 UI を Obsidian で実現するプラグインです。**1 ファイル = 1 タスク**とし、指定フォルダ配下を **「表＋タイムライン」ガント**で表示・編集します。
 
