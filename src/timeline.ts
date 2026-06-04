@@ -1,4 +1,4 @@
-import { ZoomMode, Task } from "./types";
+import { ZoomMode, Task, DateFormat } from "./types";
 
 const MS_PER_DAY = 86400000;
 
@@ -15,6 +15,42 @@ export function dayToStr(day: number): string {
 
 export function todayIndex(): number {
   return Math.floor(Date.now() / MS_PER_DAY);
+}
+
+// ISO（YYYY-MM-DD）を表示用フォーマットへ整形 / format an ISO date for display
+export function formatDate(iso: string | undefined, fmt: DateFormat): string {
+  if (!iso) return "";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso; // 解釈できない値はそのまま表示 / pass unparseable values through
+  const [, y, mo, d] = m;
+  switch (fmt) {
+    case "DD/MM/YYYY":
+      return `${d}/${mo}/${y}`;
+    case "MM/DD/YYYY":
+      return `${mo}/${d}/${y}`;
+    default:
+      return `${y}/${mo}/${d}`;
+  }
+}
+
+// 表示フォーマットの入力を ISO へ。"" = クリア、null = 不正 / parse a formatted input into ISO. "" = clear, null = invalid
+export function parseDate(text: string, fmt: DateFormat): string | null {
+  const t = text.trim();
+  if (t === "") return "";
+  const n = t.split(/[^0-9]+/).filter(Boolean);
+  if (n.length !== 3) return null;
+  let y: string, mo: string, d: string;
+  if (fmt === "DD/MM/YYYY") [d, mo, y] = n;
+  else if (fmt === "MM/DD/YYYY") [mo, d, y] = n;
+  else [y, mo, d] = n;
+  if (y.length !== 4) return null; // 年は4桁必須 / require a 4-digit year
+  const yi = +y, mi = +mo, di = +d;
+  if (mi < 1 || mi > 12 || di < 1 || di > 31) return null;
+  const iso = `${y}-${String(mi).padStart(2, "0")}-${String(di).padStart(2, "0")}`;
+  // 実在日チェック（例 2026-02-30 を弾く）/ reject impossible dates
+  const dt = new Date(`${iso}T00:00:00Z`);
+  if (isNaN(dt.getTime()) || dt.getUTCMonth() + 1 !== mi || dt.getUTCDate() !== di) return null;
+  return iso;
 }
 
 // ズームごとの 1 日あたりピクセル / pixels per day per zoom

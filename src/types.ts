@@ -49,3 +49,6 @@ export interface GanttViewState {
 export const VIEW_TYPE_GANTT = "task-gantt-view";
 // Fit = ペイン幅に収まるよう自動スケール / Fit = auto-scale to the pane width
 export type ZoomMode = "Day" | "Week" | "Month" | "Fit";
+
+// 表示用の日付フォーマット（保存値は常に ISO YYYY-MM-DD）/ display-only date format (stored value stays ISO)
+export type DateFormat = "YYYY/MM/DD" | "DD/MM/YYYY" | "MM/DD/YYYY";

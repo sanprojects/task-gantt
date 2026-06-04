@@ -69,9 +69,11 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
     const groups = segs.slice(0, -1);
 
     const start = toDateStr(fm[k.start]);
-    const end = toDateStr(fm[k.end]);
+    let end = toDateStr(fm[k.end]);
     // マイルストーン＝期限(end)のみ入力、または明示フラグ / milestone = only the due date, or explicit flag
     const milestone = fm[k.milestone] === true || (!!end && !start);
+    // 「開始のみ・終了なし」は無効ルール → 終了=開始（1日タスク扱い）/ "start only" isn't valid: mirror end = start
+    if (start && !end) end = start;
 
     rawAfter.set(file.path, toArray(fm[k.after]));
     return {

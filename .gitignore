@@ -7,3 +7,6 @@ test/model.mjs
 
 # 参照用スクショ（本体ではない）はコミットしない / keep reference screenshots local
 examples/*.png
+
+# 参照用の動画など（本体ではない）/ reference videos & scratch files (not part of the plugin)
+sample files/

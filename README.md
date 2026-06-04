@@ -72,7 +72,7 @@ Drag from a bar's round handle to another bar to create a dependency. The connec
 
 ## Settings
 
-Open **Settings → Task Gantt** to configure the plugin (default folder, subfolder recursion, default zoom).
+Open **Settings → Task Gantt** to configure the plugin (default folder, subfolder recursion, default zoom, and the **date display format** — `YYYY/MM/DD`, `DD/MM/YYYY`, or `MM/DD/YYYY`; stored dates always stay ISO `YYYY-MM-DD`).
 
 **Statuses are fully customizable** — add, edit, or delete them. Each status has an **id** (matches the `status` frontmatter value), a **label**, and a **color** that is reflected in the bar color. Click **Add status** to create one, or the trash icon to remove it.
 
@@ -178,7 +178,7 @@ after:
 
 ## 設定
 
-**設定 → Task Gantt** からプラグインを設定できます（既定フォルダ・サブフォルダの再帰・既定ズーム）。
+**設定 → Task Gantt** からプラグインを設定できます（既定フォルダ・サブフォルダの再帰・既定ズーム・**日付の表示フォーマット** ＝ `YYYY/MM/DD`／`DD/MM/YYYY`／`MM/DD/YYYY`。保存値は常に ISO `YYYY-MM-DD`）。
 
 **ステータスは自由に追加・編集・削除**できます。各ステータスは **id**（フロントマターの `status` 値と対応）・**ラベル**・**色**（バー色に反映）を持ちます。「**ステータスを追加**」で新規作成、ゴミ箱アイコンで削除します。
 

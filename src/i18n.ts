@@ -37,6 +37,11 @@ interface Strings {
   // 依存 / dependencies
   sfUnsupported: string;
   depTooltip: (type: string) => string;
+  // 日付入力 / date entry
+  invalidDate: string;
+  pickDate: string;
+  fieldDates: string;
+  clearDate: string;
   // 空表示 / empty state
   emptyMessage: (folder: string) => string;
   // 詳細パネル / detail panel
@@ -58,6 +63,7 @@ interface Strings {
   setRecurseName: string;
   setRecurseDesc: string;
   setDefaultZoomName: string;
+  setDateFormatName: string;
   setStatusesHeading: string;
   setDeleteTooltip: string;
   setAddStatus: string;
@@ -77,6 +83,10 @@ const STRINGS: Record<Lang, Strings> = {
     undoAddDep: (type) => `依存の作成 (${type})`,
     undoRemoveDep: (type) => `依存の切断 (${type})`,
     sfUnsupported: "SF（開始→終了）は未対応です。",
+    invalidDate: "日付の形式が正しくありません。",
+    pickDate: "日付を選択",
+    fieldDates: "日付",
+    clearDate: "クリア",
     depTooltip: (type) => `${type} 依存 — クリックで切断`,
     emptyMessage: (folder) => `「${folder}」配下にタスク（.md）が見つかりません。`,
     openAsNote: "ノートで開く",
@@ -96,6 +106,7 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseName: "サブフォルダを再帰",
     setRecurseDesc: "直下のサブフォルダをグループ、その中のファイルをタスクにします。",
     setDefaultZoomName: "既定のズーム",
+    setDateFormatName: "日付フォーマット",
     setStatusesHeading: "ステータス",
     setDeleteTooltip: "削除",
     setAddStatus: "ステータスを追加",
@@ -113,6 +124,10 @@ const STRINGS: Record<Lang, Strings> = {
     undoAddDep: (type) => `Add dependency (${type})`,
     undoRemoveDep: (type) => `Remove dependency (${type})`,
     sfUnsupported: "SF (start-to-finish) dependency is not supported.",
+    invalidDate: "Invalid date format.",
+    pickDate: "Pick a date",
+    fieldDates: "Dates",
+    clearDate: "Clear",
     depTooltip: (type) => `${type} dependency — click to remove`,
     emptyMessage: (folder) => `No tasks (.md) found under "${folder}".`,
     openAsNote: "Open as note",
@@ -132,6 +147,7 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseName: "Recurse subfolders",
     setRecurseDesc: "Subfolders become groups and the files inside them become tasks.",
     setDefaultZoomName: "Default zoom",
+    setDateFormatName: "Date format",
     setStatusesHeading: "Statuses",
     setDeleteTooltip: "Delete",
     setAddStatus: "Add status",

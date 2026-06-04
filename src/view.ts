@@ -22,8 +22,9 @@ import {
   pxPerDay,
   buildTicks,
   todayIndex,
+  formatDate,
 } from "./timeline";
-import { t as tr } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
+import { t as tr, lang } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
 
 const ROW_H = 30; // 行の高さ（表とタイムラインで共通）/ shared row height
 const HEAD_H = 40; // ヘッダー高さ / header height
@@ -138,6 +139,7 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
     }
+    document.querySelectorAll(".ogantt-cal").forEach((e) => e.remove()); // 開いたままのカレンダーを掃除 / drop any open calendar
   }
 
   // ディスクから集計し直して再描画 / re-collect from disk, then render
@@ -300,9 +302,10 @@ export class GanttView extends ItemView {
         nameTd.style.paddingLeft = `${indent}px`;
         // マイルストーンは開始列に菱形マーカー、期限列は日付のみ（列をはみ出さない）
         // milestone: diamond marker in the start cell, date alone in the due cell (no overflow)
-        const startTd = tr.createDiv({ cls: "ogantt-td", text: t.milestone ? "◆" : t.start ?? "" });
+        const fmt = this.plugin.settings.dateFormat;
+        const startTd = tr.createDiv({ cls: "ogantt-td", text: t.milestone ? "◆" : formatDate(t.start, fmt) });
         if (t.milestone) startTd.addClass("ogantt-td-ms");
-        tr.createDiv({ cls: "ogantt-td", text: t.end ?? "" });
+        tr.createDiv({ cls: "ogantt-td", text: formatDate(t.end, fmt) });
         tr.onclick = () => void this.openDetail(t.path);
       }
     }
@@ -825,15 +828,9 @@ export class GanttView extends ItemView {
       return r.createDiv({ cls: "ogantt-detail-field" });
     };
 
-    // 開始 / start（常に表示。マイルストーンは空欄で、日付を入れると通常タスク化／空にすると再びマイルストーン）
-    // start (always shown; empty for a milestone — entering a date turns it into a ranged task, clearing it reverts to a milestone)
-    const startIn = fieldRow(tr().fieldStart).createEl("input", { type: "date" });
-    startIn.value = t.start ?? "";
-    startIn.addEventListener("change", () => void this.saveField(k.start, startIn.value));
-    // 終了 or 期限 / end (label "期限/Due" when milestone)
-    const endIn = fieldRow(t.milestone ? tr().fieldDue : tr().fieldEnd).createEl("input", { type: "date" });
-    endIn.value = t.end ?? "";
-    endIn.addEventListener("change", () => void this.saveField(k.end, endIn.value));
+    // 開始・終了を1つのカレンダーで範囲指定（ClickUp 風・横並び・各×でクリア）
+    // start & end via one range calendar (ClickUp-style: side by side, each clearable with ×)
+    this.buildDates(meta, t);
 
     // ステータス / status
     const statusSel = fieldRow(tr().fieldStatus).createEl("select");
@@ -869,6 +866,206 @@ export class GanttView extends ItemView {
     if (!this.selectedPath) return;
     await writeField(this.app, this.selectedPath, key, value === "" ? undefined : value);
     await this.refresh();
+  }
+
+  // 日付エリア：開始・終了を横並びチップで表示、各×でクリア、クリックで範囲カレンダーを開く
+  // dates area: start & end chips side by side, each clearable with ×, click opens the range calendar
+  private buildDates(meta: HTMLElement, t: Task): void {
+    const fmt = this.plugin.settings.dateFormat;
+    const k = this.plugin.settings.keys;
+    const state = { start: t.start ?? "", end: t.end ?? "" };
+
+    const row = meta.createDiv({ cls: "ogantt-detail-row" });
+    row.createSpan({ cls: "ogantt-detail-label", text: tr().fieldDates });
+    const chips = row.createDiv({ cls: "ogantt-detail-field ogantt-date-chips" });
+
+    const painters: (() => void)[] = [];
+    const repaint = () => painters.forEach((p) => p());
+
+    // 開始・終了を両方フロントマターへ（空は削除）/ persist both ends (delete when empty)
+    const save = async (): Promise<void> => {
+      if (!this.selectedPath) return;
+      // 「開始のみ・終了なし」は無効ルール → 終了=開始 / "start only" isn't valid: fill end = start
+      if (state.start && !state.end) {
+        state.end = state.start;
+        repaint(); // 補正を即時反映 / reflect the fill right away
+      }
+      await writeField(this.app, this.selectedPath, k.start, state.start || undefined);
+      await writeField(this.app, this.selectedPath, k.end, state.end || undefined);
+      await this.refresh();
+    };
+
+    const makeChip = (which: "start" | "end"): void => {
+      const chip = chips.createDiv({ cls: "ogantt-date-chip" });
+      const ico = chip.createSpan({ cls: "ogantt-date-ico" });
+      setIcon(ico, "calendar");
+      const val = chip.createSpan({ cls: "ogantt-date-val" });
+      const x = chip.createEl("button", { cls: "ogantt-date-x clickable-icon" });
+      setIcon(x, "x");
+      x.setAttr("aria-label", tr().clearDate);
+      const paint = () => {
+        const iso = state[which];
+        if (iso) {
+          val.setText(formatDate(iso, fmt));
+          chip.removeClass("is-empty");
+          x.style.display = "";
+        } else {
+          val.setText(which === "start" ? tr().fieldStart : t.milestone ? tr().fieldDue : tr().fieldEnd);
+          chip.addClass("is-empty");
+          x.style.display = "none"; // 空のときは×を隠す / hide × when empty
+        }
+      };
+      painters.push(paint);
+      chip.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).closest(".ogantt-date-x")) return; // ×は別処理 / handled below
+        this.openRangePicker(chip, state, which, repaint, save);
+      });
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state[which] = "";
+        repaint();
+        void save();
+      });
+    };
+
+    makeChip("start");
+    makeChip("end");
+    repaint();
+  }
+
+  // 範囲カレンダー（開始・終了を1つで指定。月移動は ←→・テーマ追従）
+  // range calendar: pick start & end in one popup; month nav ← →, theme-aware
+  private openRangePicker(
+    anchor: HTMLElement,
+    state: { start: string; end: string },
+    active: "start" | "end",
+    repaint: () => void,
+    save: () => void | Promise<void>
+  ): void {
+    document.querySelectorAll(".ogantt-cal").forEach((e) => e.remove());
+    const todayStr = dayToStr(todayIndex());
+    const base = state[active] || state.start || state.end || todayStr;
+    let y = parseInt(base.slice(0, 4), 10);
+    let m = parseInt(base.slice(5, 7), 10); // 1-based
+    let act = active; // 次のクリックで設定する端点 / endpoint the next click sets
+    const wk = lang === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+    const cal = document.body.createDiv({ cls: "ogantt-cal" });
+    const close = () => {
+      cal.remove();
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+    const onOutside = (e: PointerEvent) => {
+      const tg = e.target as Node;
+      if (!cal.contains(tg) && !anchor.contains(tg)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+    };
+
+    let mode: "day" | "year" = "day"; // 日ビュー / 年（12ヶ月）ビュー / day view or year (12-month) view
+    const months = lang === "ja"
+      ? ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
+      : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    // 端点を1つ設定して交互に切り替え（逆転は補正）/ set one endpoint, then alternate (order kept valid)
+    const pick = (ds: string) => {
+      if (act === "start") {
+        state.start = ds;
+        if (state.end && ds > state.end) state.end = ds;
+        act = "end";
+      } else {
+        state.end = ds;
+        if (state.start && ds < state.start) state.start = ds;
+        act = "start";
+      }
+      repaint();
+      void save();
+      render();
+    };
+
+    // 日ビュー / day view
+    const renderDay = () => {
+      const head = cal.createDiv({ cls: "ogantt-cal-head" });
+      const prev = head.createEl("button", { cls: "clickable-icon" });
+      setIcon(prev, "chevron-left");
+      prev.onclick = () => { if (--m < 1) { m = 12; y--; } render(); };
+      // タイトルをクリックで年ビューへ / click the title to open the year view
+      const title = head.createEl("button", { cls: "ogantt-cal-title", text: `${y} / ${String(m).padStart(2, "0")}` });
+      title.onclick = () => { mode = "year"; render(); };
+      const next = head.createEl("button", { cls: "clickable-icon" });
+      setIcon(next, "chevron-right");
+      next.onclick = () => { if (++m > 12) { m = 1; y++; } render(); };
+
+      cal.createDiv({ cls: "ogantt-cal-active", text: `▸ ${act === "start" ? tr().fieldStart : tr().fieldEnd}` });
+
+      const wkRow = cal.createDiv({ cls: "ogantt-cal-wk" });
+      wk.forEach((w) => wkRow.createSpan({ text: w }));
+
+      const grid = cal.createDiv({ cls: "ogantt-cal-grid" });
+      const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+      const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      for (let i = 0; i < firstDow; i++) grid.createSpan({ cls: "ogantt-cal-pad" });
+      for (let d = 1; d <= dim; d++) {
+        const ds = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const cell = grid.createEl("button", { cls: "ogantt-cal-day", text: String(d) });
+        if (ds === todayStr) cell.addClass("is-today");
+        if (ds === state.start) cell.addClass("is-range-start");
+        if (ds === state.end) cell.addClass("is-range-end");
+        if (state.start && state.end && ds > state.start && ds < state.end) cell.addClass("is-in-range");
+        cell.onclick = () => pick(ds);
+      }
+
+      const foot = cal.createDiv({ cls: "ogantt-cal-foot" });
+      const todayBtn = foot.createEl("button", { text: lang === "ja" ? "今日" : "Today" });
+      todayBtn.onclick = () => {
+        y = parseInt(todayStr.slice(0, 4), 10);
+        m = parseInt(todayStr.slice(5, 7), 10); // 表示も今日の月へ / move the view to today
+        pick(todayStr);
+      };
+      const clearBtn = foot.createEl("button", { text: lang === "ja" ? "クリア" : "Clear" });
+      clearBtn.onclick = () => { state[act] = ""; repaint(); void save(); render(); };
+    };
+
+    // 年ビュー（12ヶ月）/ year view (12 months)
+    const renderYear = () => {
+      const head = cal.createDiv({ cls: "ogantt-cal-head" });
+      const prev = head.createEl("button", { cls: "clickable-icon" });
+      setIcon(prev, "chevron-left");
+      prev.onclick = () => { y--; render(); }; // ← → で年移動 / year nav
+      head.createSpan({ cls: "ogantt-cal-title", text: `${y}` });
+      const next = head.createEl("button", { cls: "clickable-icon" });
+      setIcon(next, "chevron-right");
+      next.onclick = () => { y++; render(); };
+
+      const grid = cal.createDiv({ cls: "ogantt-cal-months" });
+      for (let mm = 1; mm <= 12; mm++) {
+        const cell = grid.createEl("button", { cls: "ogantt-cal-month", text: months[mm - 1] });
+        if (mm === m) cell.addClass("is-current");
+        const ym = `${y}-${String(mm).padStart(2, "0")}`;
+        if (state.start.startsWith(ym) || state.end.startsWith(ym)) cell.addClass("is-selected"); // 端点を含む月 / months holding an endpoint
+        cell.onclick = () => { m = mm; mode = "day"; render(); };
+      }
+    };
+
+    const render = () => {
+      cal.empty();
+      if (mode === "year") renderYear();
+      else renderDay();
+    };
+    render();
+
+    // 位置：チップの下（画面外なら上へ反転）/ position below the chip (flip up if it would overflow)
+    const r = anchor.getBoundingClientRect();
+    let top = r.bottom + 4;
+    if (top + cal.offsetHeight > window.innerHeight) top = Math.max(4, r.top - cal.offsetHeight - 4);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - cal.offsetWidth - 8));
+    cal.style.top = `${top}px`;
+    cal.style.left = `${left}px`;
+
+    document.addEventListener("pointerdown", onOutside, true);
+    document.addEventListener("keydown", onKey, true);
   }
 
   // 詳細パネルの幅をドラッグで変更（幅は記憶）/ drag to resize the detail panel (width persisted)

@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type GanttPlugin from "./main";
-import { StatusDef, ZoomMode } from "./types";
+import { StatusDef, ZoomMode, DateFormat } from "./types";
 import { t as tr } from "./i18n"; // tr() … addText((t)=>) のコンポーネント t との衝突回避 / aliased to avoid clashing with the `t` component param
 
 // プラグイン設定 / Plugin settings
@@ -9,6 +9,7 @@ export interface GanttSettings {
   recurse: boolean; // サブフォルダを再帰的に辿るか / recurse into subfolders
   statuses: StatusDef[];
   defaultZoom: ZoomMode;
+  dateFormat: DateFormat; // 表示用の日付フォーマット / display-only date format
   detailWidth: number; // 詳細パネルの幅(px) / detail panel width (px)
   // フロントマターのキー名（プロジェクトに合わせて変更可）/ frontmatter key names
   keys: {
@@ -32,6 +33,7 @@ export const DEFAULT_SETTINGS: GanttSettings = {
     { id: "done", label: "Done", color: "#22c55e" },
   ],
   defaultZoom: "Week",
+  dateFormat: "YYYY/MM/DD",
   detailWidth: 380,
   keys: {
     start: "start",
@@ -91,6 +93,20 @@ export class GanttSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             this.plugin.settings.defaultZoom = v as ZoomMode;
             await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(tr().setDateFormatName)
+      .addDropdown((dd) =>
+        dd
+          .addOption("YYYY/MM/DD", "YYYY/MM/DD")
+          .addOption("DD/MM/YYYY", "DD/MM/YYYY")
+          .addOption("MM/DD/YYYY", "MM/DD/YYYY")
+          .setValue(this.plugin.settings.dateFormat)
+          .onChange(async (v) => {
+            this.plugin.settings.dateFormat = v as DateFormat;
+            await this.plugin.saveSettings(); // 開いているガントを自動再描画 / re-renders open Gantts
           })
       );
 
