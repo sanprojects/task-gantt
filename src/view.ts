@@ -203,12 +203,14 @@ export class GanttView extends ItemView {
   private renderToolbar(root: HTMLElement): void {
     const bar = root.createDiv({ cls: "ogantt-toolbar" });
     bar.createSpan({ cls: "ogantt-title", text: this.plugin.settings.rootFolder || "(vault root)" });
-    // 新規タスク追加 / add a new task
+    // 新規タスク追加（アイコン＋ラベル）/ add a new task (icon + label)
     const add = bar.createEl("button", { cls: "ogantt-add" });
     setIcon(add, "plus");
+    add.createSpan({ cls: "ogantt-add-label", text: tr().newTaskName });
     add.setAttr("aria-label", tr().newTaskAria);
     add.onclick = () => void this.createNewTask();
-    bar.createDiv({ cls: "ogantt-spacer" });
+    // 以降のコントロールは「＋」の右に左詰めで並べる（詳細パネルで隠れないように）
+    // keep the following controls left-packed next to "+" (so the detail panel can't hide them)
     // 今日へスクロール / scroll to today
     const todayBtn = bar.createEl("button", { cls: "ogantt-today-btn", text: tr().today });
     todayBtn.onclick = () => this.scrollToToday();
@@ -234,6 +236,9 @@ export class GanttView extends ItemView {
     setIcon(reload, "refresh-cw");
     reload.setAttr("aria-label", tr().reloadAria);
     reload.onclick = () => void this.refresh();
+
+    // 末尾の伸縮スペーサー（コントロールを左詰めに保つ）/ trailing spacer keeps controls left-packed
+    bar.createDiv({ cls: "ogantt-spacer" });
   }
 
   // ----- 表示オプション（グループ/色分け/フィルタ）＋凡例 / view options + legend -----
@@ -437,8 +442,11 @@ export class GanttView extends ItemView {
         // milestone: diamond marker in the start cell, date alone in the due cell (no overflow)
         const fmt = this.plugin.settings.dateFormat;
         const startTd = tr.createDiv({ cls: "ogantt-td", text: t.milestone ? "◆" : formatDate(t.start, fmt) });
+        // マイルストーンは開始日を持たないので開始セルは編集不可 / milestones have no start: start cell isn't editable
         if (t.milestone) startTd.addClass("ogantt-td-ms");
-        tr.createDiv({ cls: "ogantt-td", text: formatDate(t.end, fmt) });
+        else this.makeDateCell(startTd, t, "start");
+        const dueTd = tr.createDiv({ cls: "ogantt-td", text: formatDate(t.end, fmt) });
+        this.makeDateCell(dueTd, t, "end");
         tr.onclick = () => void this.openDetail(t.path);
       }
     }
@@ -1081,7 +1089,7 @@ export class GanttView extends ItemView {
           chip.removeClass("is-empty");
           x.style.display = "";
         } else {
-          val.setText(which === "start" ? tr().fieldStart : t.milestone ? tr().fieldDue : tr().fieldEnd);
+          val.setText(which === "start" ? tr().fieldStart : tr().fieldDue);
           chip.addClass("is-empty");
           x.style.display = "none"; // 空のときは×を隠す / hide × when empty
         }
@@ -1102,6 +1110,33 @@ export class GanttView extends ItemView {
     makeChip("start");
     makeChip("end");
     repaint();
+  }
+
+  // テーブルの日付セルをダブルクリックで直接編集可能にする / make a table date cell editable via double-click
+  private makeDateCell(cell: HTMLElement, t: Task, which: "start" | "end"): void {
+    cell.addClass("ogantt-td-editable");
+    cell.setAttr("aria-label", tr().pickDate);
+    // セルのシングルクリックは詳細を開かない（日付編集に専念）/ a single click here edits dates, not opens detail
+    cell.addEventListener("click", (e) => e.stopPropagation());
+    cell.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      this.openCellDatePicker(cell, t, which);
+    });
+  }
+
+  // テーブルのセルから範囲カレンダーを開いて日付を直接編集 / open the range calendar from a table cell
+  private openCellDatePicker(anchor: HTMLElement, t: Task, which: "start" | "end"): void {
+    const k = this.plugin.settings.keys;
+    const state = { start: t.start ?? "", end: t.end ?? "" };
+    const save = async (): Promise<void> => {
+      // 「開始のみ・終了なし」は無効ルール → 終了=開始 / "start only" isn't valid: fill end = start
+      if (state.start && !state.end) state.end = state.start;
+      await writeField(this.app, t.path, k.start, state.start || undefined);
+      await writeField(this.app, t.path, k.end, state.end || undefined);
+      await this.refresh();
+    };
+    // repaint はテーブル側では不要（save→refresh で再描画される）/ no chip repaint needed here
+    this.openRangePicker(anchor, state, which, () => {}, save);
   }
 
   // 範囲カレンダー（開始・終了を1つで指定。月移動は ←→・テーマ追従）
@@ -1169,7 +1204,7 @@ export class GanttView extends ItemView {
       setIcon(next, "chevron-right");
       next.onclick = () => { if (++m > 12) { m = 1; y++; } render(); };
 
-      cal.createDiv({ cls: "ogantt-cal-active", text: `▸ ${act === "start" ? tr().fieldStart : tr().fieldEnd}` });
+      cal.createDiv({ cls: "ogantt-cal-active", text: `▸ ${act === "start" ? tr().fieldStart : tr().fieldDue}` });
 
       const wkRow = cal.createDiv({ cls: "ogantt-cal-wk" });
       wk.forEach((w) => wkRow.createSpan({ text: w }));

@@ -55,7 +55,6 @@ interface Strings {
   // 詳細パネル / detail panel
   openAsNote: string;
   fieldStart: string;
-  fieldEnd: string;
   fieldDue: string;
   fieldStatus: string;
   fieldAssignee: string;
@@ -109,7 +108,6 @@ const STRINGS: Record<Lang, Strings> = {
     emptyMessage: (folder) => `「${folder}」配下にタスク（.md）が見つかりません。`,
     openAsNote: "ノートで開く",
     fieldStart: "開始日",
-    fieldEnd: "終了日",
     fieldDue: "期限",
     fieldStatus: "ステータス",
     fieldAssignee: "担当者",
@@ -159,7 +157,6 @@ const STRINGS: Record<Lang, Strings> = {
     emptyMessage: (folder) => `No tasks (.md) found under "${folder}".`,
     openAsNote: "Open as note",
     fieldStart: "Start",
-    fieldEnd: "End",
     fieldDue: "Due",
     fieldStatus: "Status",
     fieldAssignee: "Assignee",

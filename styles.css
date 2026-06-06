@@ -26,11 +26,15 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
-/* 新規タスク追加ボタン / add-task button */
+/* 新規タスク追加ボタン（アイコン＋ラベル）/ add-task button (icon + label) */
 .ogantt-add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+}
+.ogantt-add-label {
+  font-size: 0.9em;
 }
 .ogantt-empty {
   padding: 24px;
@@ -182,6 +186,15 @@
 .ogantt-td-ms {
   color: var(--text-accent);
   font-weight: 600;
+}
+/* ダブルクリックで日付編集できるセル / date cell editable via double-click */
+.ogantt-td-editable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.ogantt-td-editable:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .ogantt-td-name {
   flex: 1;
