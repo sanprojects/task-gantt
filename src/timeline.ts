@@ -44,7 +44,7 @@ export function parseDate(text: string, fmt: DateFormat): string | null {
   else if (fmt === "MM/DD/YYYY") [mo, d, y] = n;
   else [y, mo, d] = n;
   if (y.length !== 4) return null; // 年は4桁必須 / require a 4-digit year
-  const yi = +y, mi = +mo, di = +d;
+  const mi = +mo, di = +d;
   if (mi < 1 || mi > 12 || di < 1 || di > 31) return null;
   const iso = `${y}-${String(mi).padStart(2, "0")}-${String(di).padStart(2, "0")}`;
   // 実在日チェック（例 2026-02-30 を弾く）/ reject impossible dates

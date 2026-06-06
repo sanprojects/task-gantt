@@ -518,6 +518,10 @@
 .ogantt-date-chip.is-empty .ogantt-date-val {
   color: var(--text-muted);
 }
+/* 空のときは×を隠す / hide × when the date is empty */
+.ogantt-date-chip.is-empty .ogantt-date-x {
+  display: none;
+}
 .ogantt-date-x {
   flex: none;
   padding: 0;

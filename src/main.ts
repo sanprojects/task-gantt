@@ -66,7 +66,7 @@ export default class GanttPlugin extends Plugin {
       active: true,
       state: state as unknown as Record<string, unknown>,
     });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 
   async loadSettings(): Promise<void> {

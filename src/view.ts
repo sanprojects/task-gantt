@@ -1030,8 +1030,9 @@ export class GanttView extends ItemView {
     const bodyArea = d.createEl("textarea", { cls: "ogantt-detail-body-edit" });
     bodyArea.value = await readBody(this.app, t.path);
     const autosize = () => {
-      bodyArea.style.height = "auto";
-      bodyArea.style.height = `${bodyArea.scrollHeight + 2}px`;
+      // 高さを一旦リセットしてから内容に合わせる / reset, then fit to content
+      bodyArea.setCssStyles({ height: "auto" });
+      bodyArea.setCssStyles({ height: `${bodyArea.scrollHeight + 2}px` });
     };
     bodyArea.addEventListener("input", autosize);
     bodyArea.addEventListener("blur", async () => {
@@ -1084,14 +1085,13 @@ export class GanttView extends ItemView {
       x.setAttr("aria-label", tr().clearDate);
       const paint = () => {
         const iso = state[which];
+        // ×の表示/非表示は .is-empty に応じて CSS 側で制御 / × visibility is handled by CSS via .is-empty
         if (iso) {
           val.setText(formatDate(iso, fmt));
           chip.removeClass("is-empty");
-          x.style.display = "";
         } else {
           val.setText(which === "start" ? tr().fieldStart : tr().fieldDue);
           chip.addClass("is-empty");
-          x.style.display = "none"; // 空のときは×を隠す / hide × when empty
         }
       };
       painters.push(paint);
