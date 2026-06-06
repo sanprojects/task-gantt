@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Notice, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
@@ -98,9 +98,9 @@ export class GanttView extends ItemView {
   getState(): Record<string, unknown> {
     return { folder: this.folder };
   }
-  async setState(state: GanttViewState, result: unknown): Promise<void> {
+  async setState(state: GanttViewState, result: ViewStateResult): Promise<void> {
     if (state && typeof state.folder === "string") this.folder = state.folder;
-    await super.setState(state, result as any);
+    await super.setState(state, result);
     if (this.gridHost) await this.refresh();
   }
 
@@ -114,7 +114,7 @@ export class GanttView extends ItemView {
     this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
       if (!(e.key === "z" || e.key === "Z") || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       if (this.app.workspace.getActiveViewOfType(GanttView) !== this) return;
-      const ae = document.activeElement as HTMLElement | null;
+      const ae = activeDocument.activeElement as HTMLElement | null;
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
       e.preventDefault();
       void this.undo();
@@ -156,7 +156,7 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
     }
-    document.querySelectorAll(".ogantt-cal").forEach((e) => e.remove()); // 開いたままのカレンダーを掃除 / drop any open calendar
+    activeDocument.querySelectorAll(".ogantt-cal").forEach((e) => e.remove()); // 開いたままのカレンダーを掃除 / drop any open calendar
   }
 
   // ディスクから集計し直して再描画 / re-collect from disk, then render
@@ -339,8 +339,8 @@ export class GanttView extends ItemView {
 
   // 今日の線が中央に来るよう横スクロール / scroll horizontally so the today marker is centered
   private scrollToToday(): void {
-    const main = this.gridHost.querySelector(".ogantt-main") as HTMLElement | null;
-    const todayLine = main?.querySelector(".ogantt-today") as SVGElement | null;
+    const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+    const todayLine = main?.querySelector<SVGElement>(".ogantt-today");
     if (!main || !todayLine) return; // 今日が範囲外＝線が無い / no marker when today is out of range
     const mb = main.getBoundingClientRect();
     const tb = todayLine.getBoundingClientRect();
@@ -599,7 +599,7 @@ export class GanttView extends ItemView {
           ?.addClass("is-link-target");
       }
     };
-    const onUp = async (e: PointerEvent) => {
+    const onUp = (e: PointerEvent) => void (async () => {
       handle.releasePointerCapture(ev.pointerId);
       handle.removeEventListener("pointermove", onMove);
       handle.removeEventListener("pointerup", onUp);
@@ -634,7 +634,7 @@ export class GanttView extends ItemView {
           this.rerender();
         }
       }
-    };
+    })();
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onUp);
   }
@@ -687,7 +687,7 @@ export class GanttView extends ItemView {
     } else if (target.start === ns && target.end === ne) {
       return false;
     }
-    await writeDates(this.app, this.plugin.settings, target.path, ns!, ne!, target.milestone);
+    await writeDates(this.app, this.plugin.settings, target.path, ns, ne, target.milestone);
     // メモリ上も更新して連鎖整列に備える / update in-memory for cascading
     if (target.milestone) target.end = ne;
     else {
@@ -828,12 +828,12 @@ export class GanttView extends ItemView {
         depG.appendChild(xg);
 
         // クリック → 確認なしで即切断（Ctrl+Z で取り消し可）/ click → remove immediately (undo with Ctrl+Z)
-        depG.addEventListener("click", async (ev: MouseEvent) => {
+        depG.addEventListener("click", (ev: MouseEvent) => void (async () => {
           ev.stopPropagation();
           await this.pushUndo(tr().undoRemoveDep(depType));
           await removeDependency(this.app, this.plugin.settings, succPath, predPath);
           await this.refresh();
-        });
+        })());
         svg.appendChild(depG);
       }
     }
@@ -877,7 +877,7 @@ export class GanttView extends ItemView {
           handle.setAttribute("width", String(Math.max(this.ppd, w0 - dx)));
         }
       };
-      const onUp = async (e: PointerEvent) => {
+      const onUp = (e: PointerEvent) => void (async () => {
         handle.releasePointerCapture(ev.pointerId);
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", onUp);
@@ -923,7 +923,7 @@ export class GanttView extends ItemView {
             handle.setAttribute("width", String(w0));
           }
         }
-      };
+      })();
       handle.addEventListener("pointermove", onMove);
       handle.addEventListener("pointerup", onUp);
     });
@@ -966,11 +966,11 @@ export class GanttView extends ItemView {
     const header = d.createDiv({ cls: "ogantt-detail-head" });
     const titleInput = header.createEl("input", { cls: "ogantt-detail-title", type: "text" });
     titleInput.value = t.name;
-    titleInput.addEventListener("change", async () => {
+    titleInput.addEventListener("change", () => void (async () => {
       const np = await renameTask(this.app, this.selectedPath!, titleInput.value);
       if (np) this.selectedPath = np;
       await this.refresh();
-    });
+    })());
     // 新規作成直後は名前を選択状態にして即リネームできるように / select the name right after creation
     if (focusTitle) window.setTimeout(() => { titleInput.focus(); titleInput.select(); }, 0);
     const openBtn = header.createEl("button", { cls: "clickable-icon" });
@@ -1017,13 +1017,13 @@ export class GanttView extends ItemView {
     progRange.value = String(t.progress ?? 0);
     const progVal = progField.createSpan({ cls: "ogantt-progress-val", text: `${t.progress ?? 0}%` });
     progRange.addEventListener("input", () => progVal.setText(`${progRange.value}%`));
-    progRange.addEventListener("change", async () => {
+    progRange.addEventListener("change", () => void (async () => {
       if (!this.selectedPath) return;
       // 0% は未設定として削除、それ以外は数値で保存 / drop at 0% (unset), otherwise store the number
       const n = Number(progRange.value);
       await writeField(this.app, this.selectedPath, k.progress, n > 0 ? n : undefined);
       await this.refresh();
-    });
+    })());
 
     // 本文 / body（テキストエリア、フォーカスを外したら保存）/ body textarea, saved on blur
     d.createEl("div", { cls: "ogantt-detail-label", text: tr().fieldBody });
@@ -1035,9 +1035,9 @@ export class GanttView extends ItemView {
       bodyArea.setCssStyles({ height: `${bodyArea.scrollHeight + 2}px` });
     };
     bodyArea.addEventListener("input", autosize);
-    bodyArea.addEventListener("blur", async () => {
+    bodyArea.addEventListener("blur", () => void (async () => {
       await writeBody(this.app, this.selectedPath!, bodyArea.value);
-    });
+    })());
     window.setTimeout(autosize, 0);
   }
 
@@ -1148,7 +1148,7 @@ export class GanttView extends ItemView {
     repaint: () => void,
     save: () => void | Promise<void>
   ): void {
-    document.querySelectorAll(".ogantt-cal").forEach((e) => e.remove());
+    activeDocument.querySelectorAll(".ogantt-cal").forEach((e) => e.remove());
     const todayStr = dayToStr(todayIndex());
     const base = state[active] || state.start || state.end || todayStr;
     let y = parseInt(base.slice(0, 4), 10);
@@ -1156,11 +1156,11 @@ export class GanttView extends ItemView {
     let act = active; // 次のクリックで設定する端点 / endpoint the next click sets
     const wk = lang === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
-    const cal = document.body.createDiv({ cls: "ogantt-cal" });
+    const cal = activeDocument.body.createDiv({ cls: "ogantt-cal" });
     const close = () => {
       cal.remove();
-      document.removeEventListener("pointerdown", onOutside, true);
-      document.removeEventListener("keydown", onKey, true);
+      activeDocument.removeEventListener("pointerdown", onOutside, true);
+      activeDocument.removeEventListener("keydown", onKey, true);
     };
     const onOutside = (e: PointerEvent) => {
       const tg = e.target as Node;
@@ -1270,8 +1270,8 @@ export class GanttView extends ItemView {
     cal.style.top = `${top}px`;
     cal.style.left = `${left}px`;
 
-    document.addEventListener("pointerdown", onOutside, true);
-    document.addEventListener("keydown", onKey, true);
+    activeDocument.addEventListener("pointerdown", onOutside, true);
+    activeDocument.addEventListener("keydown", onKey, true);
   }
 
   // 詳細パネルの幅をドラッグで変更（幅は記憶）/ drag to resize the detail panel (width persisted)
@@ -1284,13 +1284,13 @@ export class GanttView extends ItemView {
         const w = Math.max(280, Math.min(board.width - 120, board.right - e.clientX));
         panel.style.width = `${w}px`;
       };
-      const onUp = async (e: PointerEvent) => {
+      const onUp = () => void (async () => {
         resizer.releasePointerCapture(ev.pointerId);
         resizer.removeEventListener("pointermove", onMove);
         resizer.removeEventListener("pointerup", onUp);
         this.plugin.settings.detailWidth = parseInt(panel.style.width, 10) || 380;
         await this.plugin.saveData(this.plugin.settings);
-      };
+      })();
       resizer.addEventListener("pointermove", onMove);
       resizer.addEventListener("pointerup", onUp);
     });
@@ -1298,7 +1298,7 @@ export class GanttView extends ItemView {
 
   // SVG 要素生成ヘルパー / SVG element helper
   private svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
-    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    const el = activeDocument.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
     return el;
   }

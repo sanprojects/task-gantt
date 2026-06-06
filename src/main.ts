@@ -70,7 +70,9 @@ export default class GanttPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // loadData() は any を返すので保存形へ明示キャスト / loadData() returns any: cast to the saved shape
+    const data = (await this.loadData()) as Partial<GanttSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
     this.settings.keys = Object.assign({}, DEFAULT_SETTINGS.keys, this.settings.keys);
   }
 

@@ -173,7 +173,7 @@ export async function writeDates(
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return;
   const k = settings.keys;
-  await app.fileManager.processFrontMatter(file, (fm) => {
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
     if (milestone) {
       // マイルストーンは期限(end)のみ / milestone keeps only the due date
       fm[k.end] = end;
@@ -194,7 +194,7 @@ export async function writeField(
 ): Promise<void> {
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return;
-  await app.fileManager.processFrontMatter(file, (fm) => {
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
     if (value == null || value === "") delete fm[key];
     else fm[key] = value;
   });
@@ -261,11 +261,12 @@ export async function addDependency(
   const pred = app.vault.getAbstractFileByPath(predPath);
   if (!(succ instanceof TFile) || !(pred instanceof TFile)) return false;
   const k = settings.keys;
-  await app.fileManager.processFrontMatter(succ, (fm) => {
-    const arr = fm[k.after] == null ? [] : Array.isArray(fm[k.after]) ? fm[k.after] : [fm[k.after]];
+  await app.fileManager.processFrontMatter(succ, (fm: Record<string, unknown>) => {
+    const existing = fm[k.after];
+    const arr: unknown[] = existing == null ? [] : Array.isArray(existing) ? existing : [existing];
     // 既存の同 pred を除去 / drop any existing entry to the same predecessor
     const kept = arr.filter(
-      (raw: unknown) => resolveLink(app, stripDepType(raw), successorPath)?.path !== predPath
+      (raw) => resolveLink(app, stripDepType(raw), successorPath)?.path !== predPath
     );
     const link = app.fileManager.generateMarkdownLink(pred, successorPath);
     kept.push(type === "FS" ? link : `${type}:${link}`); // FS はプレフィックス無しで後方互換
@@ -284,11 +285,12 @@ export async function removeDependency(
   const succ = app.vault.getAbstractFileByPath(successorPath);
   if (!(succ instanceof TFile)) return;
   const k = settings.keys;
-  await app.fileManager.processFrontMatter(succ, (fm) => {
-    if (fm[k.after] == null) return;
-    const list = Array.isArray(fm[k.after]) ? fm[k.after] : [fm[k.after]];
+  await app.fileManager.processFrontMatter(succ, (fm: Record<string, unknown>) => {
+    const existing = fm[k.after];
+    if (existing == null) return;
+    const list: unknown[] = Array.isArray(existing) ? existing : [existing];
     const filtered = list.filter(
-      (raw: unknown) => resolveLink(app, stripDepType(raw), successorPath)?.path !== predPath
+      (raw) => resolveLink(app, stripDepType(raw), successorPath)?.path !== predPath
     );
     if (filtered.length) fm[k.after] = filtered;
     else delete fm[k.after];

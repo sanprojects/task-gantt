@@ -77,6 +77,9 @@ interface Strings {
   setStatusesHeading: string;
   setDeleteTooltip: string;
   setAddStatus: string;
+  setStatusId: string;
+  setStatusLabel: string;
+  setStatusColor: string;
   setKeysHeading: string;
 }
 
@@ -128,6 +131,9 @@ const STRINGS: Record<Lang, Strings> = {
     setStatusesHeading: "ステータス",
     setDeleteTooltip: "削除",
     setAddStatus: "ステータスを追加",
+    setStatusId: "ID",
+    setStatusLabel: "ラベル",
+    setStatusColor: "色",
     setKeysHeading: "フロントマターのキー名",
   },
   en: {
@@ -177,6 +183,9 @@ const STRINGS: Record<Lang, Strings> = {
     setStatusesHeading: "Statuses",
     setDeleteTooltip: "Delete",
     setAddStatus: "Add status",
+    setStatusId: "ID",
+    setStatusLabel: "Label",
+    setStatusColor: "Color",
     setKeysHeading: "Frontmatter keys",
   },
 };
