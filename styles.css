@@ -59,6 +59,15 @@
 .ogantt-opt-label {
   color: var(--text-muted);
 }
+/* チェックボックス型オプション（ラベル全体がクリック可）/ checkbox-style option (whole label clickable) */
+.ogantt-opt-check {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.ogantt-opt-check input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
 /* オプションのアイコン（意味はツールチップで補助）/ option icon (meaning via tooltip) */
 .ogantt-opt-ico {
   display: inline-flex;
@@ -172,6 +181,15 @@
 }
 .ogantt-tr.is-selected {
   background: var(--background-modifier-hover);
+}
+/* ドラッグ中の行 / row being dragged */
+.ogantt-tr.is-dragging {
+  opacity: 0.45;
+}
+/* ドロップ先のハイライト（フォルダ/タスク行）/ drop-target highlight */
+.ogantt-tr.is-drop-target {
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
 }
 .ogantt-td {
   width: 84px;

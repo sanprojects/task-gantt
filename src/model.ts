@@ -102,6 +102,28 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
   return tasks;
 }
 
+// スコープ配下の全サブフォルダを「相対セグメント配列」で収集（空フォルダ表示用）
+// collect all subfolders under the scope as relative segment arrays (used to show empty folders)
+export function collectFolders(app: App, settings: GanttSettings, folderPath: string): string[][] {
+  if (!settings.recurse) return []; // 非再帰ならサブフォルダはグループ化されない / no grouping when not recursing
+  const rootPath = normalizePath(folderPath || "/");
+  const root =
+    rootPath === "/" ? app.vault.getRoot() : app.vault.getAbstractFileByPath(rootPath);
+  if (!(root instanceof TFolder)) return [];
+  const isVaultRoot = root === app.vault.getRoot();
+  const out: string[][] = [];
+  const walk = (folder: TFolder) => {
+    for (const child of folder.children) {
+      if (!(child instanceof TFolder)) continue;
+      const rel = isVaultRoot ? child.path : child.path.slice(rootPath.length + 1);
+      out.push(rel.split("/"));
+      walk(child);
+    }
+  };
+  walk(root);
+  return out;
+}
+
 // タスクの開始・終了アンカー（マイルストーンは期限日に集約）/ task anchor dates (milestone collapses to its due date)
 export function anchorStart(t: Task): string | undefined {
   return t.milestone ? t.end ?? t.start : t.start;
@@ -133,8 +155,18 @@ function spanOf(tasks: Task[]): { start: string; end: string } | undefined {
 
 // フォルダ階層を入れ子の表示行へ展開（collapsed のフォルダは子を省く）
 // flatten the folder tree into nested rows (collapsed folders hide their children)
-export function buildRows(tasks: Task[], collapsed: Set<string> = new Set()): Row[] {
+export function buildRows(tasks: Task[], collapsed: Set<string> = new Set(), folders: string[][] = []): Row[] {
   const root: TreeNode = { name: "", folders: new Map(), tasks: [] };
+  // 先に（空かもしれない）フォルダのノードを作る＝タスクが無くても行が出る
+  // seed nodes for (possibly empty) folders first, so a folder shows even with no tasks
+  for (const chain of folders) {
+    let node = root;
+    for (const g of chain) {
+      if (!g) continue;
+      if (!node.folders.has(g)) node.folders.set(g, { name: g, folders: new Map(), tasks: [] });
+      node = node.folders.get(g)!;
+    }
+  }
   for (const t of tasks) {
     let node = root;
     for (const g of t.groups) {
@@ -243,6 +275,22 @@ export async function renameTask(app: App, path: string, newName: string): Promi
   const dir = file.parent && file.parent.path !== "/" ? file.parent.path + "/" : "";
   const newPath = `${dir}${safe}.md`;
   if (newPath === path) return path;
+  await app.fileManager.renameFile(file, newPath);
+  return newPath;
+}
+
+// タスク（ファイル）を別フォルダへ移動。リンクは更新される / move the task file to another folder (updates links)
+// 同フォルダなら no-op、名前衝突は連番で回避 / no-op if already there; de-duplicate name on collision
+export async function moveTask(app: App, path: string, destFolder: string): Promise<string | null> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return null;
+  const dir = normalizePath(destFolder || "/");
+  if (normalizePath(file.parent?.path ?? "/") === dir) return path; // 既に同じフォルダ / already there
+  const prefix = dir === "/" ? "" : dir + "/";
+  let name = file.basename;
+  let i = 1;
+  while (app.vault.getAbstractFileByPath(`${prefix}${name}.md`)) name = `${file.basename} ${++i}`;
+  const newPath = `${prefix}${name}.md`;
   await app.fileManager.renameFile(file, newPath);
   return newPath;
 }

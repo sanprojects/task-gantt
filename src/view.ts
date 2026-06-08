@@ -3,8 +3,10 @@ import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
   collectTasks,
+  collectFolders,
   buildRows,
   createTask,
+  moveTask,
   writeDates,
   writeField,
   writeBody,
@@ -59,10 +61,13 @@ export class GanttView extends ItemView {
   private groupBy: "folder" | "status" | "assignee" = "folder";
   private filterStatus = ""; // "" = すべて / all
   private filterAssignee = ""; // "" = すべて / all
+  private showEmptyFolders = true; // 空フォルダも行として表示（既定ON）/ show empty folders as rows (default on)
+  private allFolders: string[][] = []; // スコープ配下の全フォルダ（相対セグメント）/ all folders under scope
   private optionsHost!: HTMLElement; // フィルタ/グループ/凡例の差し替え先 / options + legend container
 
-  // 取り消し履歴（操作前のファイル内容スナップショット）/ undo history (pre-op file snapshots)
-  private undoStack: { label: string; files: Map<string, string> }[] = [];
+  // 取り消し履歴：操作前のファイル内容スナップショット、またはファイル移動(from→to)
+  // undo history: a pre-op content snapshot, or a file move (from → to)
+  private undoStack: { label: string; files?: Map<string, string>; move?: { from: string; to: string } }[] = [];
   private static readonly UNDO_LIMIT = 50;
 
   // バーがドラッグされたか（ドラッグ直後のクリック抑止用）/ whether a bar was dragged (to suppress the trailing click)
@@ -163,6 +168,7 @@ export class GanttView extends ItemView {
   async refresh(): Promise<void> {
     if (!this.gridHost) this.buildSkeleton();
     this.tasks = collectTasks(this.app, this.plugin.settings, this.folder);
+    this.allFolders = collectFolders(this.app, this.plugin.settings, this.folder);
     this.rerender();
   }
 
@@ -172,14 +178,17 @@ export class GanttView extends ItemView {
     if (!this.gridHost) this.buildSkeleton();
     this.renderOptions(); // フィルタ/グループ/凡例を最新データで更新 / refresh options + legend
     const view = this.processTasks(); // フィルタ＋グループ適用後 / after filter + group remap
-    this.rows = buildRows(view, this.collapsed);
+    // フォルダグループ化＋オプションON のときだけ空フォルダもノード化 / seed empty folders only when grouping by folder and the option is on
+    const folders = this.showEmptyFolders && this.groupBy === "folder" ? this.allFolders : [];
+    this.rows = buildRows(view, this.collapsed, folders);
     this.range = computeRange(view);
     this.ppd = this.computePpd();
     const titleEl = this.contentEl.querySelector(".ogantt-title");
     if (titleEl) titleEl.setText(this.folder || "(vault root)");
 
     this.gridHost.empty();
-    if (view.length === 0) {
+    // タスクが無くても表示すべきフォルダ行があれば描画する / render if there are rows (even empty folders)
+    if (this.rows.length === 0) {
       this.gridHost.createDiv({ cls: "ogantt-empty" }).setText(
         tr().emptyMessage(this.folder || "vault")
       );
@@ -264,6 +273,17 @@ export class GanttView extends ItemView {
       sel.addEventListener("change", () => on(sel.value));
     };
 
+    // チェックボックス（ラベル全体クリックで切替）/ checkbox (the whole label toggles it)
+    const makeCheckbox = (icon: string, label: string, checked: boolean, on: (v: boolean) => void): void => {
+      const wrap = host.createEl("label", { cls: "ogantt-opt ogantt-opt-check" });
+      const cb = wrap.createEl("input", { type: "checkbox" });
+      cb.checked = checked;
+      const ic = wrap.createSpan({ cls: "ogantt-opt-ico" });
+      setIcon(ic, icon);
+      wrap.createSpan({ text: label });
+      cb.addEventListener("change", () => on(cb.checked));
+    };
+
     // ── 表示の組み立て（グループ化・色分け）/ layout (group + color) ──
     // グループ化 / group by
     makeSelect(
@@ -301,6 +321,13 @@ export class GanttView extends ItemView {
       [["", tr().filterAll], ...assignees.map((a) => [a, a] as [string, string])],
       (v) => { this.filterAssignee = v; this.rerender(); }
     );
+    // 空フォルダ表示の切替（フォルダグループ化時のみ意味がある）/ show-empty-folders toggle (only meaningful when grouping by folder)
+    if (this.groupBy === "folder") {
+      makeCheckbox("folder", tr().optShowEmpty, this.showEmptyFolders, (v) => {
+        this.showEmptyFolders = v;
+        this.rerender();
+      });
+    }
 
     // 凡例（色分けの基準を説明）/ legend explaining the current color basis
     const legend = host.createDiv({ cls: "ogantt-legend" });
@@ -360,16 +387,32 @@ export class GanttView extends ItemView {
     this.updateUndoButton();
   }
 
-  // 直近の操作を取り消す（控えた内容を書き戻す）/ revert the most recent op by restoring its snapshot
+  // 移動操作を取り消し履歴へ（戻すときは to→from へリネーム）/ record a move (undo renames to → from)
+  private pushUndoMove(label: string, from: string, to: string): void {
+    this.undoStack.push({ label, move: { from, to } });
+    if (this.undoStack.length > GanttView.UNDO_LIMIT) this.undoStack.shift();
+    this.updateUndoButton();
+  }
+
+  // 直近の操作を取り消す（内容スナップショット復元 or 移動の巻き戻し）/ revert the most recent op (restore content or undo a move)
   private async undo(): Promise<void> {
     const entry = this.undoStack.pop();
     if (!entry) {
       new Notice(tr().nothingToUndo);
       return;
     }
-    for (const [path, content] of entry.files) {
-      const f = this.app.vault.getAbstractFileByPath(path);
-      if (f instanceof TFile) await this.app.vault.modify(f, content);
+    if (entry.move) {
+      // 移動を戻す：to のファイルを元の from へ / move the file back from `to` to `from`
+      const f = this.app.vault.getAbstractFileByPath(entry.move.to);
+      if (f instanceof TFile) {
+        await this.app.fileManager.renameFile(f, entry.move.from);
+        if (this.selectedPath === entry.move.to) this.selectedPath = entry.move.from;
+      }
+    } else if (entry.files) {
+      for (const [path, content] of entry.files) {
+        const f = this.app.vault.getAbstractFileByPath(path);
+        if (f instanceof TFile) await this.app.vault.modify(f, content);
+      }
     }
     new Notice(tr().undone(entry.label));
     await this.refresh();
@@ -432,6 +475,11 @@ export class GanttView extends ItemView {
           else this.collapsed.add(row.key);
           void this.refresh();
         };
+        // フォルダグループへドロップ＝そのフォルダへ移動 / dropping onto a folder group moves the task there
+        if (this.groupBy === "folder" && row.key != null) {
+          const dest = this.folder ? `${this.folder}/${row.key}` : row.key;
+          this.makeDropTarget(tr, dest);
+        }
       } else {
         const t = row.task!;
         tr.setAttr("data-path", t.path);
@@ -448,6 +496,15 @@ export class GanttView extends ItemView {
         const dueTd = tr.createDiv({ cls: "ogantt-td", text: formatDate(t.end, fmt) });
         this.makeDateCell(dueTd, t, "end");
         tr.onclick = () => void this.openDetail(t.path);
+        // フォルダグループ化時のみ D&D 有効：行をドラッグして別フォルダへ移動
+        // enable drag & drop only when grouped by folder: drag a row to move it between folders
+        if (this.groupBy === "folder") {
+          this.makeDraggableTask(tr, t.path);
+          // タスク行へのドロップ＝そのタスクと同じフォルダへ（ルート直下タスクへ落とせばルートへ）
+          // dropping onto a task moves into that task's folder (drop onto a root task to reach the root)
+          const dir = t.path.includes("/") ? t.path.slice(0, t.path.lastIndexOf("/")) : "";
+          this.makeDropTarget(tr, dir);
+        }
       }
     }
 
@@ -941,6 +998,44 @@ export class GanttView extends ItemView {
     await writeField(this.app, file.path, k.end, today);
     await this.refresh();
     await this.openDetail(file.path, true);
+  }
+
+  // ----- フォルダ移動（テーブル行のドラッグ＆ドロップ）/ move folders via table-row drag & drop -----
+  // タスク行をドラッグ可能にする / make a task row draggable
+  private makeDraggableTask(row: HTMLElement, path: string): void {
+    row.setAttr("draggable", "true");
+    row.addEventListener("dragstart", (e: DragEvent) => {
+      e.dataTransfer?.setData("text/plain", path);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      row.addClass("is-dragging");
+    });
+    row.addEventListener("dragend", () => row.removeClass("is-dragging"));
+  }
+
+  // 行をドロップ先にする（dest = 移動先フォルダの絶対パス）/ make a row a drop target (dest = absolute folder path)
+  private makeDropTarget(row: HTMLElement, dest: string): void {
+    row.addEventListener("dragover", (e: DragEvent) => {
+      e.preventDefault(); // preventDefault でドロップを許可 / allow dropping
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      row.addClass("is-drop-target");
+    });
+    row.addEventListener("dragleave", () => row.removeClass("is-drop-target"));
+    row.addEventListener("drop", (e: DragEvent) => {
+      e.preventDefault();
+      row.removeClass("is-drop-target");
+      const src = e.dataTransfer?.getData("text/plain");
+      if (src) void this.moveTaskTo(src, dest);
+    });
+  }
+
+  // タスクを移動して再描画（取り消し可・選択中なら選択を引き継ぐ）/ move a task, then re-render (undoable; carry over selection)
+  private async moveTaskTo(srcPath: string, destFolder: string): Promise<void> {
+    const name = this.tasks.find((t) => t.path === srcPath)?.name ?? srcPath;
+    const np = await moveTask(this.app, srcPath, destFolder);
+    if (!np || np === srcPath) return; // 失敗 or 同フォルダ＝何もしない / failed or no-op
+    this.pushUndoMove(tr().undoMove(name), srcPath, np); // Ctrl+Z / 戻るボタンで戻せる / undoable
+    if (this.selectedPath === srcPath) this.selectedPath = np;
+    await this.refresh();
   }
 
   // ----- 詳細パネル（編集モード）/ editable detail slide-over -----

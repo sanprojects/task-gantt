@@ -34,12 +34,14 @@ interface Strings {
   optGroupLabel: string;
   optGroupFolder: string;
   optColorLabel: string;
+  optShowEmpty: string;
   filterAll: string;
   noneLabel: string;
   // 取り消し / undo
   nothingToUndo: string;
   undone: (label: string) => string;
   undoReschedule: (name: string) => string;
+  undoMove: (name: string) => string;
   undoAddDep: (type: string) => string;
   undoRemoveDep: (type: string) => string;
   // 依存 / dependencies
@@ -95,11 +97,13 @@ const STRINGS: Record<Lang, Strings> = {
     optGroupLabel: "グループ",
     optGroupFolder: "フォルダ",
     optColorLabel: "色分け",
+    optShowEmpty: "空フォルダを表示",
     filterAll: "すべて",
     noneLabel: "（なし）",
     nothingToUndo: "取り消す操作がありません",
     undone: (label) => `取り消しました: ${label}`,
     undoReschedule: (name) => `「${name}」の日程変更`,
+    undoMove: (name) => `「${name}」の移動`,
     undoAddDep: (type) => `依存の作成 (${type})`,
     undoRemoveDep: (type) => `依存の切断 (${type})`,
     sfUnsupported: "SF（開始→終了）は未対応です。",
@@ -147,11 +151,13 @@ const STRINGS: Record<Lang, Strings> = {
     optGroupLabel: "Group",
     optGroupFolder: "Folder",
     optColorLabel: "Color",
+    optShowEmpty: "Show empty folders",
     filterAll: "All",
     noneLabel: "(none)",
     nothingToUndo: "Nothing to undo",
     undone: (label) => `Undone: ${label}`,
     undoReschedule: (name) => `Reschedule "${name}"`,
+    undoMove: (name) => `Move "${name}"`,
     undoAddDep: (type) => `Add dependency (${type})`,
     undoRemoveDep: (type) => `Remove dependency (${type})`,
     sfUnsupported: "SF (start-to-finish) dependency is not supported.",
