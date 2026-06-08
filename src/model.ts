@@ -61,6 +61,7 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
 
   const k = settings.keys;
   const rawAfter = new Map<string, string[]>(); // path -> 生の after / raw after entries
+  const rawParent = new Map<string, string>(); // path -> 生の parent リンク / raw parent link
   const tasks: Task[] = files.map((file) => {
     const fm = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
     // スコープから見たフォルダ階層（ファイル名は除く）/ folder chain relative to the scope (without filename)
@@ -76,6 +77,8 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
     if (start && !end) end = start;
 
     rawAfter.set(file.path, toArray(fm[k.after]));
+    const pv = fm[k.parent];
+    if (pv != null && pv !== "") rawParent.set(file.path, Array.isArray(pv) ? String(pv[0]) : String(pv));
     return {
       path: file.path,
       name: file.basename,
@@ -87,6 +90,7 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
       deps: [] as Dep[],
       progress: fm[k.progress] != null ? Number(fm[k.progress]) : undefined,
       milestone,
+      parent: undefined,
     };
   });
 
@@ -97,6 +101,12 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
       const { type, link } = parseDepRaw(raw);
       const dest = resolveLink(app, link, t.path);
       if (dest && byPath.has(dest.path)) t.deps.push({ path: dest.path, type });
+    }
+    // 親リンクを解決（解決できない＝宙ぶらりんはトップレベル扱い）/ resolve parent (unresolved = treated as top-level)
+    const rp = rawParent.get(t.path);
+    if (rp) {
+      const dest = resolveLink(app, rp, t.path);
+      if (dest && dest.path !== t.path && byPath.has(dest.path)) t.parent = dest.path;
     }
   }
   return tasks;
@@ -163,7 +173,8 @@ export function buildRows(
   tasks: Task[],
   collapsed: Set<string> = new Set(),
   folders: string[][] = [],
-  taskCompare: (a: Task, b: Task) => number = defaultTaskCompare
+  taskCompare: (a: Task, b: Task) => number = defaultTaskCompare,
+  nest = false // 親子（parent）でネストするか（フォルダグループ化時のみ）/ nest by parent (folder grouping only)
 ): Row[] {
   const root: TreeNode = { name: "", folders: new Map(), tasks: [] };
   // 先に（空かもしれない）フォルダのノードを作る＝タスクが無くても行が出る
@@ -194,9 +205,49 @@ export function buildRows(
       rows.push({ kind: "group", group: name, depth, key, span: spanOf(descendantTasks(child)) });
       if (!collapsed.has(key)) walk(child, depth + 1, key);
     }
-    // 直下タスクを指定の比較関数で並べる（既定は開始日昇順）/ sort direct tasks by the given comparator (default: start asc)
-    const list = node.tasks.slice().sort(taskCompare);
-    for (const task of list) rows.push({ kind: "task", group: node.name, depth, task });
+    // 直下タスクを並べる（nest 時は parent でツリー化）/ place direct tasks (a parent forest when nesting)
+    if (!nest) {
+      const list = node.tasks.slice().sort(taskCompare);
+      for (const task of list) rows.push({ kind: "task", group: node.name, depth, task });
+      return;
+    }
+    // ── 親子ネスト：同一フォルダ内のタスクを parent でフォレスト化 / nest by parent within this folder ──
+    const paths = new Set(node.tasks.map((t) => t.path));
+    const childrenOf = (p: string): Task[] =>
+      node.tasks.filter((t) => t.parent === p).sort(taskCompare);
+    // 自分＋子孫の集約（ロールアップ用）/ self + descendants span (for rollup)
+    const subtree = (t: Task, seen: Set<string>): Task[] => {
+      if (seen.has(t.path)) return [];
+      seen.add(t.path);
+      const out = [t];
+      for (const c of childrenOf(t.path)) out.push(...subtree(c, seen));
+      return out;
+    };
+    // ルート＝親が無い or 親が同フォルダに居ない（宙ぶらりん→トップレベル昇格）/ roots = no parent or parent not in this folder
+    const roots = node.tasks.filter((t) => !t.parent || !paths.has(t.parent)).sort(taskCompare);
+    // フォレストに属するタスク（折りたたみは無視して算出）/ tasks that belong to the forest (ignoring collapse)
+    const reachable = new Set<string>();
+    const mark = (p: string) => {
+      if (reachable.has(p)) return;
+      reachable.add(p);
+      for (const c of childrenOf(p)) mark(c.path);
+    };
+    for (const r of roots) mark(r.path);
+
+    const emitted = new Set<string>();
+    const emit = (task: Task, d: number) => {
+      if (emitted.has(task.path)) return; // 重複ガード / dup guard
+      emitted.add(task.path);
+      const kids = childrenOf(task.path);
+      const has = kids.length > 0;
+      const span = has ? spanOf(subtree(task, new Set())) : undefined;
+      rows.push({ kind: "task", group: node.name, depth: d, task, key: has ? task.path : undefined, span, hasChildren: has });
+      // 折りたたみ中は子を出さない / hide children while collapsed
+      if (has && !collapsed.has(task.path)) for (const c of kids) emit(c, d + 1);
+    };
+    for (const r of roots) emit(r, depth);
+    // フォレストに到達できない＝循環で孤立したタスクだけトップレベルで出す / surface only cycle-orphaned tasks
+    for (const t of node.tasks.slice().sort(taskCompare)) if (!reachable.has(t.path)) emit(t, depth);
   };
   walk(root, 0, "");
   return rows;
@@ -288,20 +339,57 @@ export async function renameTask(app: App, path: string, newName: string): Promi
   return newPath;
 }
 
-// タスク（ファイル）を別フォルダへ移動。リンクは更新される / move the task file to another folder (updates links)
-// 同フォルダなら no-op、名前衝突は連番で回避 / no-op if already there; de-duplicate name on collision
-export async function moveTask(app: App, path: string, destFolder: string): Promise<string | null> {
-  const file = app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) return null;
+// 指定タスクのサブツリー（自分＋子孫）のパス一覧 / paths of a task's subtree (self + descendants)
+export function subtreePaths(tasks: Task[], rootPath: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const visit = (p: string) => {
+    if (seen.has(p)) return;
+    seen.add(p);
+    out.push(p);
+    for (const c of tasks) if (c.parent === p) visit(c.path);
+  };
+  visit(rootPath);
+  return out;
+}
+
+// タスクの親を設定/解除し、サブツリーごと destFolder へ移動する（D&D の本体）
+// set/clear a task's parent and move its whole subtree into destFolder (the D&D core)
+// 戻り値：移動履歴（from→to）と src の旧内容（Undo 用）/ returns moves and the src's old content (for undo)
+export async function reparentTask(
+  app: App,
+  settings: GanttSettings,
+  tasks: Task[],
+  srcPath: string,
+  destFolder: string,
+  parentFile: TFile | null
+): Promise<{ moves: { from: string; to: string }[]; oldContent: string } | null> {
+  const src = app.vault.getAbstractFileByPath(srcPath);
+  if (!(src instanceof TFile)) return null;
+  const k = settings.keys;
+  const oldContent = await app.vault.read(src); // 変更前スナップショット / pre-op snapshot
+  // 親リンクを設定（または解除）/ set (or clear) the parent link
+  await app.fileManager.processFrontMatter(src, (fm: Record<string, unknown>) => {
+    if (parentFile) fm[k.parent] = app.fileManager.generateMarkdownLink(parentFile, srcPath);
+    else delete fm[k.parent];
+  });
+  // サブツリー（自分＋子孫）は同一フォルダに同居しているので、全部 destFolder へ移す
+  // the subtree co-locates in one folder, so move all of it into destFolder
   const dir = normalizePath(destFolder || "/");
-  if (normalizePath(file.parent?.path ?? "/") === dir) return path; // 既に同じフォルダ / already there
   const prefix = dir === "/" ? "" : dir + "/";
-  let name = file.basename;
-  let i = 1;
-  while (app.vault.getAbstractFileByPath(`${prefix}${name}.md`)) name = `${file.basename} ${++i}`;
-  const newPath = `${prefix}${name}.md`;
-  await app.fileManager.renameFile(file, newPath);
-  return newPath;
+  const moves: { from: string; to: string }[] = [];
+  for (const p of subtreePaths(tasks, srcPath)) {
+    const f = app.vault.getAbstractFileByPath(p);
+    if (!(f instanceof TFile)) continue;
+    if (normalizePath(f.parent?.path ?? "/") === dir) continue; // 既に dest / already there
+    let name = f.basename;
+    let i = 1;
+    while (app.vault.getAbstractFileByPath(`${prefix}${name}.md`)) name = `${f.basename} ${++i}`;
+    const np = `${prefix}${name}.md`;
+    await app.fileManager.renameFile(f, np); // リンクは Obsidian が更新 / Obsidian updates links
+    moves.push({ from: p, to: np });
+  }
+  return { moves, oldContent };
 }
 
 // 依存を追加（型付き）: successor.after に predecessor を足す。既存の同 pred は置き換える

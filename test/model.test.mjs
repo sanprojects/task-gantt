@@ -1,6 +1,6 @@
 // buildRows / マイルストーン判定 / span 集約 の検証
 // Tests for buildRows, milestone detection, and group span rollup
-import { buildRows, anchorStart, anchorEnd } from "./model.mjs";
+import { buildRows, anchorStart, anchorEnd, subtreePaths } from "./model.mjs";
 
 let pass = 0;
 let fail = 0;
@@ -56,6 +56,30 @@ check("お掃除を畳むと行は1つ（お掃除のみ）", collapsedRows.leng
 const c2 = buildRows(tasks, new Set(["お掃除/床掃除"]));
 check("床掃除を畳むと掃き掃除/拭き掃除が消える", !c2.some((r) => r.task?.name === "掃き掃除"));
 check("床掃除を畳んでもお風呂掃除のタスクは残る", c2.some((r) => r.task?.name === "排水溝清掃"));
+
+// ----- サブタスク（parent ネスト）/ subtask nesting -----
+const sub = [
+  { path: "p/F/Parent.md", name: "Parent", groups: ["F"], start: "2026-03-01", end: "2026-03-02", after: [], milestone: false },
+  { path: "p/F/Child.md", name: "Child", groups: ["F"], start: "2026-03-05", end: "2026-03-08", after: [], milestone: false, parent: "p/F/Parent.md" },
+];
+// nest=true で親子ツリー / nest by parent
+const nestRows = buildRows(sub, new Set(), [], undefined, true);
+const pRow = nestRows.find((r) => r.task?.name === "Parent");
+const cRow = nestRows.find((r) => r.task?.name === "Child");
+check("親行は hasChildren", pRow.hasChildren === true);
+check("子は親より1段深い", cRow.depth === pRow.depth + 1);
+check("親のロールアップ span = 3/1..3/8", pRow.span?.start === "2026-03-01" && pRow.span?.end === "2026-03-08");
+
+// 親を畳むと子が消える（キー＝親パス）/ collapsing the parent hides the child
+const nestCollapsed = buildRows(sub, new Set(["p/F/Parent.md"]), [], undefined, true);
+check("親を畳むと子が消える", !nestCollapsed.some((r) => r.task?.name === "Child"));
+
+// nest=false（既定）では親子は同じ深さのフラット / without nesting, siblings stay flat
+const flatRows = buildRows(sub);
+check("nest無効なら親子は同じ depth", flatRows.find((r) => r.task?.name === "Parent").depth === flatRows.find((r) => r.task?.name === "Child").depth);
+
+// subtreePaths は自分＋子孫 / subtree includes self + descendants
+check("subtreePaths は親＋子", JSON.stringify(subtreePaths(sub, "p/F/Parent.md").sort()) === JSON.stringify(["p/F/Child.md", "p/F/Parent.md"]));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -23,6 +23,7 @@ export interface GanttSettings {
     after: string;
     progress: string;
     milestone: string;
+    parent: string;
   };
 }
 
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: GanttSettings = {
     after: "after",
     progress: "progress",
     milestone: "milestone",
+    parent: "parent",
   },
 };
 

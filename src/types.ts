@@ -28,6 +28,7 @@ export interface Task {
   deps: Dep[]; // 先行タスクへの依存（解決済み）/ resolved dependencies on predecessors
   progress?: number; // 0-100
   milestone: boolean;
+  parent?: string; // 親タスクのパス（解決済み）/ resolved parent task path
 }
 
 // グループ（フォルダ）見出し or タスク、を一列に並べた表示行 / a display row
@@ -37,8 +38,9 @@ export interface Row {
   depth: number; // 入れ子の深さ（インデント用）/ nesting depth for indentation
   key?: string; // グループ行の一意キー（折りたたみ用）/ unique folder key for collapse state
   task?: Task;
-  // グループ行のまとめバー範囲（配下タスクの集約）/ rolled-up span for a group row
+  // グループ行/親タスク行のまとめバー範囲（配下の集約）/ rolled-up span for a group or parent-task row
   span?: { start: string; end: string };
+  hasChildren?: boolean; // 親タスク行（子サブタスクを持つ）/ a parent task row (has subtasks)
 }
 
 // 専用ビューに渡す状態 / state passed to the dedicated view

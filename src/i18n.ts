@@ -37,6 +37,7 @@ interface Strings {
   optShowEmpty: string;
   optColumns: string;
   optFlat: string;
+  optRollup: string;
   filterAll: string;
   noneLabel: string;
   // 取り消し / undo
@@ -44,6 +45,9 @@ interface Strings {
   undone: (label: string) => string;
   undoReschedule: (name: string) => string;
   undoMove: (name: string) => string;
+  undoSubtask: (name: string) => string;
+  undoDetach: (name: string) => string;
+  cycleBlocked: string;
   undoAddDep: (type: string) => string;
   undoRemoveDep: (type: string) => string;
   // 依存 / dependencies
@@ -63,6 +67,7 @@ interface Strings {
   fieldStatus: string;
   fieldAssignee: string;
   fieldProgress: string;
+  fieldParent: string;
   fieldBody: string;
   // 新規タスク / new task
   newTaskName: string;
@@ -102,12 +107,16 @@ const STRINGS: Record<Lang, Strings> = {
     optShowEmpty: "空フォルダを表示",
     optColumns: "列の表示",
     optFlat: "フラット表示",
+    optRollup: "ロールアップ",
     filterAll: "すべて",
     noneLabel: "（なし）",
     nothingToUndo: "取り消す操作がありません",
     undone: (label) => `取り消しました: ${label}`,
     undoReschedule: (name) => `「${name}」の日程変更`,
     undoMove: (name) => `「${name}」の移動`,
+    undoSubtask: (name) => `「${name}」をサブタスク化`,
+    undoDetach: (name) => `「${name}」の親を解除`,
+    cycleBlocked: "循環するためサブタスクにできません",
     undoAddDep: (type) => `依存の作成 (${type})`,
     undoRemoveDep: (type) => `依存の切断 (${type})`,
     sfUnsupported: "SF（開始→終了）は未対応です。",
@@ -123,6 +132,7 @@ const STRINGS: Record<Lang, Strings> = {
     fieldStatus: "ステータス",
     fieldAssignee: "担当者",
     fieldProgress: "進捗",
+    fieldParent: "親タスク",
     fieldBody: "本文",
     newTaskName: "新規タスク",
     ribbonOpen: "Gantt を開く",
@@ -158,12 +168,16 @@ const STRINGS: Record<Lang, Strings> = {
     optShowEmpty: "Show empty folders",
     optColumns: "Columns",
     optFlat: "Flat",
+    optRollup: "Roll up",
     filterAll: "All",
     noneLabel: "(none)",
     nothingToUndo: "Nothing to undo",
     undone: (label) => `Undone: ${label}`,
     undoReschedule: (name) => `Reschedule "${name}"`,
     undoMove: (name) => `Move "${name}"`,
+    undoSubtask: (name) => `Make "${name}" a subtask`,
+    undoDetach: (name) => `Detach "${name}"`,
+    cycleBlocked: "Can't make a subtask: that would create a cycle",
     undoAddDep: (type) => `Add dependency (${type})`,
     undoRemoveDep: (type) => `Remove dependency (${type})`,
     sfUnsupported: "SF (start-to-finish) dependency is not supported.",
@@ -179,6 +193,7 @@ const STRINGS: Record<Lang, Strings> = {
     fieldStatus: "Status",
     fieldAssignee: "Assignee",
     fieldProgress: "Progress",
+    fieldParent: "Parent",
     fieldBody: "Body",
     newTaskName: "New task",
     ribbonOpen: "Open Gantt",

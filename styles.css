@@ -108,6 +108,13 @@
   margin: 0;
   cursor: pointer;
 }
+/* ロールアップ（親＝子孫を含む集約）バー：通常バーと区別する薄い枠 / rollup (parent summary) bar */
+.ogantt-rollup-bar {
+  opacity: 0.9;
+  stroke: var(--text-on-accent);
+  stroke-opacity: 0.35;
+  stroke-width: 1.5;
+}
 /* ステータス列の色ドット / status column color dot */
 .ogantt-status-dot {
   display: inline-block;
@@ -271,6 +278,36 @@
 .ogantt-td-ms {
   color: var(--text-accent);
   font-weight: 600;
+}
+/* 親タスク行の折りたたみシェブロン枠（常に確保して名前位置を揃える）/ fixed chevron slot (keeps names aligned) */
+.ogantt-task-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex: none;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+.ogantt-task-chevron .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+.ogantt-task-chevron.is-clickable {
+  cursor: pointer;
+}
+.ogantt-task-chevron.is-clickable:hover {
+  color: var(--text-normal);
+}
+/* 詳細パネルの親タスク・チップ / parent chip in the detail panel */
+.ogantt-parent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
 }
 /* ダブルクリックで日付編集できるセル / date cell editable via double-click */
 .ogantt-td-editable {
