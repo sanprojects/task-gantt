@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
@@ -28,7 +28,7 @@ import {
   todayIndex,
   formatDate,
 } from "./timeline";
-import { t as tr, lang } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
+import { t as tr } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
 
 const ROW_H = 30; // 行の高さ（表とタイムラインで共通）/ shared row height
 const HEAD_H = 40; // ヘッダー高さ / header height
@@ -1503,7 +1503,7 @@ export class GanttView extends ItemView {
     let y = parseInt(base.slice(0, 4), 10);
     let m = parseInt(base.slice(5, 7), 10); // 1-based
     let act = active; // 次のクリックで設定する端点 / endpoint the next click sets
-    const wk = lang === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+    const wk = moment.weekdaysMin(); // ロケールの曜日略称（日曜始まり）/ localized minimal weekday names (Sunday-first)
 
     const cal = activeDocument.body.createDiv({ cls: "ogantt-cal" });
     const close = () => {
@@ -1520,9 +1520,7 @@ export class GanttView extends ItemView {
     };
 
     let mode: "day" | "year" = "day"; // 日ビュー / 年（12ヶ月）ビュー / day view or year (12-month) view
-    const months = lang === "ja"
-      ? ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
-      : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const months = moment.monthsShort(); // ロケールの月名略称 / localized short month names
 
     // 端点を1つ設定して交互に切り替え（逆転は補正）/ set one endpoint, then alternate (order kept valid)
     const pick = (ds: string) => {
@@ -1573,13 +1571,13 @@ export class GanttView extends ItemView {
       }
 
       const foot = cal.createDiv({ cls: "ogantt-cal-foot" });
-      const todayBtn = foot.createEl("button", { text: lang === "ja" ? "今日" : "Today" });
+      const todayBtn = foot.createEl("button", { text: tr().today });
       todayBtn.onclick = () => {
         y = parseInt(todayStr.slice(0, 4), 10);
         m = parseInt(todayStr.slice(5, 7), 10); // 表示も今日の月へ / move the view to today
         pick(todayStr);
       };
-      const clearBtn = foot.createEl("button", { text: lang === "ja" ? "クリア" : "Clear" });
+      const clearBtn = foot.createEl("button", { text: tr().clearDate });
       clearBtn.onclick = () => { state[act] = ""; repaint(); void save(); render(); };
     };
 

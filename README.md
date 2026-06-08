@@ -30,7 +30,7 @@ Click a task to open the detail panel and edit its dates, status, assignee, prog
 6. Use the **＋ New task** button to create a one-day task in the current folder and name it on the spot, and **Today** to scroll the timeline to the current date.
 7. Use the **Day / Week / Month / Fit** buttons to change the timeline scale. **Fit** auto-scales to the pane width and re-fits when you resize.
 
-The UI follows Obsidian's display language: Japanese when Obsidian is set to Japanese, English otherwise.
+The UI follows Obsidian's display language. Supported: English, Japanese, Korean, Chinese (Simplified & Traditional), French, Spanish, and Russian; any other language falls back to English.
 
 ## View options
 
@@ -165,7 +165,7 @@ MIT — see [`LICENSE`](./LICENSE).
 6. **＋ 新規タスク**ボタンで現在のフォルダに1日タスクを作ってその場で命名、**今日**ボタンでタイムラインを今日へスクロールできます。
 7. **Day / Week / Month / Fit** ボタンで時間軸の拡大率を変更。**Fit** はペイン幅に自動で収め、リサイズにも追従します。
 
-UI 表示は Obsidian の表示言語に追従します（日本語なら日本語、それ以外は英語）。
+UI 表示は Obsidian の表示言語に追従します。対応言語：英語・日本語・韓国語・中国語（簡体／繁体）・フランス語・スペイン語・ロシア語（その他は英語にフォールバック）。
 
 ## 表示オプション
 
