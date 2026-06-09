@@ -549,6 +549,17 @@
   align-items: center;
   gap: 6px;
 }
+/* 削除確認ダイアログ / delete confirm dialog */
+.ogantt-confirm-sub {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.ogantt-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
 .ogantt-detail-title {
   flex: 1;
   font-size: 1.1em;

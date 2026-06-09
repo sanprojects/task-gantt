@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
+import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
@@ -12,6 +12,7 @@ import {
   writeField,
   writeBody,
   renameTask,
+  deleteTask,
   addDependency,
   removeDependency,
   readBody,
@@ -125,6 +126,10 @@ export class GanttView extends ItemView {
     await this.refresh();
     // メタデータ更新で自動再描画（ガント部のみ）/ re-render the grid when frontmatter changes
     this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleRefresh()));
+    // ファイルの作成/削除/リネーム（フォルダ移動含む）でも自動再描画 / also re-render on create / delete / rename (incl. folder moves)
+    this.registerEvent(this.app.vault.on("create", () => this.scheduleRefresh()));
+    this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
+    this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
     // Ctrl/Cmd+Z で取り消し（入力欄にフォーカス中はネイティブ undo を優先）
     // Ctrl/Cmd+Z to undo (defer to native undo while an input is focused)
     this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
@@ -572,6 +577,10 @@ export class GanttView extends ItemView {
     grid.style.gridTemplateColumns = `${this.tableWidth()}px ${width}px`;
     grid.style.gridTemplateRows = `${HEAD_H}px ${bodyH}px`;
 
+    // 行ループ内ではローカル変数 tr（行要素）が i18n の tr() を隠すため、先に文言を退避
+    // the row var `tr` shadows the i18n tr() inside the loop, so grab strings up front
+    const strings = tr();
+
     // (1) 左上の角＝表ヘッダー（表示中の列を並べる・クリックでソート）/ top-left corner = header (click to sort)
     const corner = grid.createDiv({ cls: "ogantt-corner" });
     for (const id of cols) {
@@ -648,6 +657,13 @@ export class GanttView extends ItemView {
               });
             }
             nameTd.createSpan({ text: t.name });
+            // タイトル右クリック＝削除メニュー / right-click the title = delete menu
+            nameTd.addEventListener("contextmenu", (e) => {
+              e.preventDefault();
+              const m = new Menu();
+              m.addItem((i) => i.setTitle(strings.menuDelete).setIcon("trash-2").onClick(() => this.confirmDelete(t.path)));
+              m.showAtMouseEvent(e);
+            });
           } else {
             const td = tr.createDiv({ cls: "ogantt-td" });
             td.style.width = `${COLUMN_WIDTHS[id]}px`;
@@ -1265,6 +1281,17 @@ export class GanttView extends ItemView {
     setIcon(openBtn, "external-link");
     openBtn.setAttr("aria-label", tr().openAsNote);
     openBtn.onclick = () => void this.app.workspace.openLinkText(this.selectedPath!, "", true);
+    // ゴミ箱アイコン＝削除メニュー / trash icon = delete menu
+    const delBtn = header.createEl("button", { cls: "clickable-icon" });
+    setIcon(delBtn, "trash-2");
+    delBtn.setAttr("aria-label", tr().menuDelete);
+    delBtn.onclick = (e) => {
+      const m = new Menu();
+      m.addItem((i) => i.setTitle(tr().menuDelete).setIcon("trash-2").onClick(() => {
+        if (this.selectedPath) this.confirmDelete(this.selectedPath);
+      }));
+      m.showAtMouseEvent(e);
+    };
     const closeBtn = header.createEl("button", { cls: "clickable-icon" });
     setIcon(closeBtn, "x");
     closeBtn.onclick = () => d.removeClass("is-open");
@@ -1343,6 +1370,31 @@ export class GanttView extends ItemView {
       await writeBody(this.app, this.selectedPath!, bodyArea.value);
     })());
     window.setTimeout(autosize, 0);
+  }
+
+  // 確認ダイアログを挟んでタスクを削除（ゴミ箱へ）/ confirm, then delete the task (to trash)
+  private confirmDelete(path: string): void {
+    const t = this.tasks.find((x) => x.path === path);
+    if (!t) return;
+    const hasChildren = this.tasks.some((x) => x.parent === path);
+    new ConfirmModal(this.app, {
+      title: tr().confirmDeleteTitle,
+      body: tr().confirmDeleteBody(t.name),
+      sub: hasChildren ? tr().confirmDeleteChildren : undefined,
+      confirmText: tr().menuDelete,
+      cancelText: tr().cancel,
+      onConfirm: () => void (async () => {
+        const ok = await deleteTask(this.app, path);
+        if (!ok) return;
+        // 削除したタスクの詳細が開いていたら閉じる / close the detail panel if it showed the deleted task
+        if (this.selectedPath === path) {
+          this.selectedPath = null;
+          this.detailEl?.removeClass("is-open");
+        }
+        new Notice(tr().deletedNotice(t.name));
+        await this.refresh();
+      })(),
+    }).open();
   }
 
   // フィールド保存（空なら削除）/ save a frontmatter field (delete if empty)
@@ -1648,5 +1700,37 @@ export class GanttView extends ItemView {
     const el = activeDocument.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
     return el;
+  }
+}
+
+// 削除などの確認ダイアログ（破壊的操作の前に確認）/ a small confirm dialog for destructive actions
+interface ConfirmOpts {
+  title: string;
+  body: string;
+  sub?: string;
+  confirmText: string;
+  cancelText: string;
+  onConfirm: () => void;
+}
+class ConfirmModal extends Modal {
+  constructor(app: App, private opts: ConfirmOpts) {
+    super(app);
+  }
+  onOpen(): void {
+    this.titleEl.setText(this.opts.title);
+    this.contentEl.createEl("p", { text: this.opts.body });
+    if (this.opts.sub) this.contentEl.createEl("p", { cls: "ogantt-confirm-sub", text: this.opts.sub });
+    const btns = this.contentEl.createDiv({ cls: "ogantt-confirm-btns" });
+    const cancel = btns.createEl("button", { text: this.opts.cancelText });
+    cancel.onclick = () => this.close();
+    const ok = btns.createEl("button", { cls: "mod-warning", text: this.opts.confirmText });
+    ok.onclick = () => {
+      this.close();
+      this.opts.onConfirm();
+    };
+    window.setTimeout(() => ok.focus(), 0); // Enter で即確定 / Enter confirms
+  }
+  onClose(): void {
+    this.contentEl.empty();
   }
 }

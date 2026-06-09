@@ -343,6 +343,14 @@ export async function renameTask(app: App, path: string, newName: string): Promi
   return newPath;
 }
 
+// タスクを削除（ユーザー設定のゴミ箱へ・OSゴミ箱 or .trash・復元可）/ delete a task to the user's trash (recoverable)
+export async function deleteTask(app: App, path: string): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.trashFile(file);
+  return true;
+}
+
 // 指定タスクのサブツリー（自分＋子孫）のパス一覧 / paths of a task's subtree (self + descendants)
 export function subtreePaths(tasks: Task[], rootPath: string): string[] {
   const out: string[] = [];
