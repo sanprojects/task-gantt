@@ -523,7 +523,8 @@
   opacity: 0;
   cursor: crosshair;
 }
-.ogantt-bar-g:hover .ogantt-handle {
+/* ハンドルは専用レイヤー（最前面）にあり、表示は JS が is-visible で切替 / revealed via JS (handles live in the topmost layer) */
+.ogantt-handle.is-visible {
   opacity: 1;
 }
 .ogantt-link-temp {

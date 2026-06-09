@@ -796,8 +796,12 @@ export class GanttView extends ItemView {
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(bodyH));
     this.drawGrid(svg, width, bodyH);
-    this.drawBars(svg);
+    // 依存作成ハンドルは専用レイヤーに集め、依存矢印より後に追加＝最前面で掴みやすい
+    // collect connector handles in their own layer, appended after the arrows so they stay topmost and grabbable
+    const handlesLayer = this.svgEl("g", { class: "ogantt-handles-layer" });
+    this.drawBars(svg, handlesLayer);
     this.drawDependencies(svg); // バーの上に描いて矢印を隠さない / on top of bars so arrows stay visible
+    svg.appendChild(handlesLayer); // 矢印の上にハンドルを重ねる / handles above arrows
   }
 
   private xOf(dateStr: string): number {
@@ -821,7 +825,7 @@ export class GanttView extends ItemView {
     }
   }
 
-  private drawBars(svg: SVGElement): void {
+  private drawBars(svg: SVGElement, handlesLayer: SVGElement): void {
     const statusColor = new Map(this.plugin.settings.statuses.map((s) => [s.id, s.color]));
     this.rows.forEach((row, i) => {
       // グループ行のまとめバー / group summary bar
@@ -909,13 +913,21 @@ export class GanttView extends ItemView {
       }
 
       // 依存作成用の丸ハンドル（バーから少し離して配置。左=start, 右=finish）/ connector handles, detached from the bar
+      // 別レイヤー（最前面）に置くので、表示はバー/ハンドルのホバーで JS 切替（CSS の子孫セレクタが効かないため）
+      // they live in the topmost layer, so reveal them via JS hover on the bar or the handle (CSS descendant selector won't reach)
       const HGAP = 11; // バー端からの距離 / gap from the bar edge
       const handleDefs: [number, "start" | "finish"][] = [[lx - HGAP, "start"], [rx + HGAP, "finish"]];
+      const handles: SVGElement[] = [];
       for (const [hx, end] of handleDefs) {
         const handle = this.svgEl("circle", { cx: hx, cy: cyMid, r: 5, class: "ogantt-handle" });
         handle.addEventListener("pointerdown", (e: PointerEvent) => this.startLink(g, svg, t, end, e));
-        g.appendChild(handle);
+        handle.addEventListener("mouseenter", () => handle.classList.add("is-visible"));
+        handle.addEventListener("mouseleave", () => handle.classList.remove("is-visible"));
+        handlesLayer.appendChild(handle);
+        handles.push(handle);
       }
+      g.addEventListener("mouseenter", () => handles.forEach((h) => h.classList.add("is-visible")));
+      g.addEventListener("mouseleave", () => handles.forEach((h) => h.classList.remove("is-visible")));
 
       // バーはダブルクリックで詳細パネルを開く（シングルクリックでは開かない＝ドラッグ操作と区別）
       // open the detail panel on double-click only (single click is left for dragging)
