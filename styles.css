@@ -546,6 +546,17 @@
   left: -9999px;
 }
 
+/* 設定タブ: ステータス/タグ色の行は名前欄が無いので、空の info を畳んでコントロールを左から並べる */
+/* settings tab: status/tag-color rows have no name — collapse the empty info and left-align the controls */
+.setting-item.ogantt-setting-row .setting-item-info {
+  display: none;
+}
+.setting-item.ogantt-setting-row .setting-item-control {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 /* ---- 詳細パネル（右からスライドイン）/ detail slide-over ---- */
 .ogantt-detail {
   position: absolute;
