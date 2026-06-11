@@ -23,6 +23,10 @@ export interface Task {
   groups: string[]; // スコープから見たフォルダ階層 / folder chain relative to the scope
   start?: string; // YYYY-MM-DD
   end?: string; // YYYY-MM-DD
+  // 時刻（任意）。frontmatter が "YYYY-MM-DDTHH:mm" のとき設定される。レイアウトは日単位のまま
+  // optional time of day, set when frontmatter is "YYYY-MM-DDTHH:mm"; layout stays day-based
+  startTime?: string; // HH:mm
+  endTime?: string; // HH:mm
   status?: string; // StatusDef.id を参照
   assignee?: string;
   deps: Dep[]; // 先行タスクへの依存（解決済み）/ resolved dependencies on predecessors

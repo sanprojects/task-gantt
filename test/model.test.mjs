@@ -1,6 +1,6 @@
 // buildRows / マイルストーン判定 / span 集約 の検証
 // Tests for buildRows, milestone detection, and group span rollup
-import { buildRows, anchorStart, anchorEnd, subtreePaths } from "./model.mjs";
+import { buildRows, anchorStart, anchorEnd, subtreePaths, parseStored, combineDateTime } from "./model.mjs";
 
 let pass = 0;
 let fail = 0;
@@ -18,6 +18,26 @@ function check(name, cond) {
 const ms = { milestone: true, end: "2026-02-10" };
 check("anchorStart(milestone)=end", anchorStart(ms) === "2026-02-10");
 check("anchorEnd(milestone)=end", anchorEnd(ms) === "2026-02-10");
+
+// 時刻のパース・タイムゾーン換算・結合 / time parsing, timezone conversion, combining
+const eq = (p, date, time) => p != null && p.date === date && p.time === time;
+check("parseStored(日付のみ)", eq(parseStored("2026-06-12", "+09:00"), "2026-06-12", undefined));
+check("parseStored(naive はそのまま)", eq(parseStored("2026-06-12T09:30", "+00:00"), "2026-06-12", "09:30"));
+check("parseStored(1桁時)=07:00", eq(parseStored("2026-06-12T7:00", "+09:00"), "2026-06-12", "07:00"));
+check("parseStored(不正な時刻)=日付のみ", eq(parseStored("2026-06-12T25:00", "+09:00"), "2026-06-12", undefined));
+check("parseStored(不正値)=undefined", parseStored("未定", "+09:00") === undefined);
+check("parseStored(null)=undefined", parseStored(null, "+09:00") === undefined);
+check("parseStored(同一TZ)", eq(parseStored("2026-06-12T09:00+09:00", "+09:00"), "2026-06-12", "09:00"));
+check("parseStored(+09:00→GMT)", eq(parseStored("2026-06-12T09:00+09:00", "+00:00"), "2026-06-12", "00:00"));
+check("parseStored(Z→+09:00)", eq(parseStored("2026-06-12T09:00Z", "+09:00"), "2026-06-12", "18:00"));
+check("parseStored(日付またぎ)", eq(parseStored("2026-06-12T01:00+09:00", "-05:00"), "2026-06-11", "11:00"));
+check("parseStored(30分TZ)", eq(parseStored("2026-06-12T09:00+09:00", "+05:30"), "2026-06-12", "05:30"));
+check("combineDateTime(オフセット付与)", combineDateTime("2026-06-12", "09:30", "+09:00") === "2026-06-12T09:30+09:00");
+check("combineDateTime(負オフセット)", combineDateTime("2026-06-12", "09:30", "-05:00") === "2026-06-12T09:30-05:00");
+check("combineDateTime(日付のみ)", combineDateTime("2026-06-12", "", "+09:00") === "2026-06-12");
+check("combineDateTime(日付なし)=undefined", combineDateTime(undefined, "09:30", "+09:00") === undefined);
+// 往復: 書いた値を読み戻すと同じ表示になる / round-trip: write then read back yields the same display
+check("往復(書き→読み)", eq(parseStored(combineDateTime("2026-06-12", "09:30", "+09:00"), "+09:00"), "2026-06-12", "09:30"));
 
 // 多階層: お掃除 > 床掃除 / お風呂掃除 / multi-level nesting
 const tasks = [

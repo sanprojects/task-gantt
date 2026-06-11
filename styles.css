@@ -843,3 +843,64 @@ button.ogantt-cal-title:hover {
 .ogantt-muted {
   color: var(--text-muted);
 }
+
+/* 詳細パネル: 時刻入力（開始/終了を横並び）/ detail panel: time-of-day inputs side by side */
+.ogantt-time-inputs {
+  display: flex;
+  gap: 8px;
+}
+.ogantt-time-input {
+  flex: 1;
+  min-width: 0;
+}
+.ogantt-time-input:disabled {
+  opacity: 0.4;
+}
+
+/* 時刻欄: 手動入力＋時計アイコン / time field: manual input + clock button */
+.ogantt-time-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+/* ネイティブの1分刻みピッカーは隠す（時計アイコン側で10分刻み選択）/ hide the native 1-min picker indicator */
+.ogantt-time-input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+/* 時・分（10分刻み）ドロップダウンのポップアップ / hour + minute (10-min steps) dropdown popup */
+.ogantt-timepick {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+
+/* 列幅リサイズグリップ（ヘッダ右端）/ column resize grip on the header right edge */
+.ogantt-th {
+  position: relative;
+}
+.ogantt-col-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+.ogantt-col-grip:hover {
+  background: var(--interactive-accent);
+  opacity: 0.4;
+}
+/* 列の縦罫線 / vertical column gridlines */
+.ogantt-th:not(:last-child),
+.ogantt-tr > .ogantt-td:not(:last-child) {
+  border-right: 1px solid var(--background-modifier-border);
+}

@@ -14,15 +14,56 @@ function stripDepType(raw: unknown): string {
   return String(raw).replace(/^\s*(FS|SS|FF)\s*:\s*/i, "");
 }
 
-// 日付らしき値を YYYY-MM-DD 文字列へ（不正値は undefined）/ coerce to YYYY-MM-DD (undefined if not a valid date)
-function toDateStr(v: unknown): string | undefined {
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+// 設定タイムゾーンのオフセット（分）。"system" は端末のその時点のオフセット（DST考慮）
+// configured timezone offset in minutes; "system" = device offset at that instant (DST-aware)
+function offsetMinutes(tz: string, instantMs: number): number {
+  const m = tz.match(/^([+-])(\d{2}):(\d{2})$/);
+  if (m) return (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +m[3]);
+  return -new Date(instantMs).getTimezoneOffset();
+}
+
+// 分オフセットを "+09:00" 形式へ / minutes to a "+09:00" suffix
+function offsetSuffix(min: number): string {
+  const a = Math.abs(min);
+  return `${min < 0 ? "-" : "+"}${pad2(Math.floor(a / 60))}:${pad2(a % 60)}`;
+}
+
+// 保存値を表示用の日付＋時刻へ。オフセット付き（+09:00 / Z）は設定タイムゾーンへ換算、
+// naive（オフセット無し）はそのまま、日付として読めない値（例: "未定"）は undefined
+// parse a stored value into display date + time: zoned values convert to the configured tz,
+// naive values pass through, non-date values (e.g. "未定") become undefined
+export function parseStored(v: unknown, tz: string): { date: string; time?: string } | undefined {
   if (v == null || v === "") return undefined;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const s = String(v).trim();
-  const m = s.match(/^\d{4}-\d{2}-\d{2}/);
-  // 日付として解釈できない値（例: "未定"）は無効扱いにしてレイアウト崩壊を防ぐ
-  // values that aren't a date (e.g. "未定") are dropped so they can't break the layout
-  return m ? m[0] : undefined;
+  if (v instanceof Date) v = v.toISOString();
+  const m = String(v)
+    .trim()
+    .match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(Z|z|[+-]\d{2}:?\d{2})?)?/);
+  if (!m) return undefined;
+  const [, date, h, mi, zone] = m;
+  if (h == null) return { date };
+  const hh = +h;
+  const mm = +mi;
+  if (hh > 23 || mm > 59) return { date }; // 不正な時刻は日付のみ扱い / invalid time → date only
+  if (!zone) return { date, time: `${pad2(hh)}:${pad2(mm)}` };
+  const zu = zone.toUpperCase();
+  const zMin = zu === "Z" ? 0 : (zu[0] === "-" ? -1 : 1) * (+zu.slice(1, 3) * 60 + +zu.replace(":", "").slice(-2));
+  const [y, mo, d] = date.split("-").map(Number);
+  const instant = Date.UTC(y, mo - 1, d, hh, mm) - zMin * 60000;
+  const disp = new Date(instant + offsetMinutes(tz, instant) * 60000).toISOString();
+  return { date: disp.slice(0, 10), time: disp.slice(11, 16) };
+}
+
+// 表示用の日付＋時刻を保存形式へ（時刻があれば設定タイムゾーンのオフセットを付与）
+// combine display date + time into the stored value (a time gets the configured tz offset appended)
+export function combineDateTime(date: string | undefined, time: string | undefined, tz: string): string | undefined {
+  if (!date) return undefined;
+  if (!time) return date;
+  // "system" はその日時のローカルオフセット（DST考慮）/ "system" = device offset at that wall time (DST-aware)
+  const m = tz.match(/^([+-])(\d{2}):(\d{2})$/);
+  const min = m ? (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +m[3]) : -new Date(`${date}T${time}`).getTimezoneOffset();
+  return `${date}T${time}${offsetSuffix(min)}`;
 }
 
 // after を文字列配列へ正規化 / normalize `after` into a string array
@@ -80,8 +121,10 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
     const segs = rel.split("/");
     const groups = segs.slice(0, -1);
 
-    const start = toDateStr(fm[k.start]);
-    let end = toDateStr(fm[k.end]);
+    const ps = parseStored(fm[k.start], settings.tz);
+    const pe = parseStored(fm[k.end], settings.tz);
+    const start = ps?.date;
+    let end = pe?.date;
     // マイルストーン＝期限(end)のみ入力、または明示フラグ / milestone = only the due date, or explicit flag
     const milestone = fm[k.milestone] === true || (!!end && !start);
     // 「開始のみ・終了なし」は無効ルール → 終了=開始（1日タスク扱い）/ "start only" isn't valid: mirror end = start
@@ -100,6 +143,8 @@ export function collectTasks(app: App, settings: GanttSettings, folderPath: stri
       groups,
       start,
       end,
+      startTime: ps?.time,
+      endTime: pe?.time,
       status: fm[k.status] != null ? String(fm[k.status]) : undefined,
       assignee: fm[k.assignee] != null ? String(fm[k.assignee]) : undefined,
       deps: [] as Dep[],
@@ -282,13 +327,17 @@ export async function writeDates(
   if (!(file instanceof TFile)) return;
   const k = settings.keys;
   await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+    // 既存値に時刻が付いていたら表示時刻を新しい日付へ引き継ぐ（オフセットは設定タイムゾーンへ正規化）
+    // carry the displayed time-of-day over to the new date (re-normalizing the offset to the configured tz)
+    const ts = parseStored(fm[k.start], settings.tz)?.time;
+    const te = parseStored(fm[k.end], settings.tz)?.time;
     if (milestone) {
       // マイルストーンは期限(end)のみ / milestone keeps only the due date
-      fm[k.end] = end;
+      fm[k.end] = combineDateTime(end, te, settings.tz);
       delete fm[k.start];
     } else {
-      fm[k.start] = start;
-      fm[k.end] = end;
+      fm[k.start] = combineDateTime(start, ts, settings.tz);
+      fm[k.end] = combineDateTime(end, te, settings.tz);
     }
   });
 }

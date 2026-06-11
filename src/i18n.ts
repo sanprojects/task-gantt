@@ -66,6 +66,7 @@ interface Strings {
   invalidDate: string;
   pickDate: string;
   fieldDates: string;
+  fieldTime: string;
   clearDate: string;
   // 空表示 / empty state
   emptyMessage: (folder: string) => string;
@@ -104,6 +105,9 @@ interface Strings {
   setRecurseDesc: string;
   setDefaultZoomName: string;
   setDateFormatName: string;
+  setTimezoneName: string;
+  setTimezoneDesc: string;
+  setTimezoneSystem: string;
   setStatusesHeading: string;
   setDeleteTooltip: string;
   setAddStatus: string;
@@ -149,6 +153,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "日付の形式が正しくありません。",
     pickDate: "日付を選択",
     fieldDates: "日付",
+    fieldTime: "時刻",
     clearDate: "クリア",
     depTooltip: (type) => `${type} 依存 — クリックで切断`,
     emptyMessage: (folder) => `「${folder}」配下にタスク（.md）が見つかりません。`,
@@ -182,6 +187,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "直下のサブフォルダをグループ、その中のファイルをタスクにします。",
     setDefaultZoomName: "既定のズーム",
     setDateFormatName: "日付フォーマット",
+    setTimezoneName: "タイムゾーン",
+    setTimezoneDesc: "時刻の表示と保存に使うタイムゾーン（GMTオフセット）。変更すると保存済みの時刻も換算して表示されます。",
+    setTimezoneSystem: "システム（端末の設定）",
     setStatusesHeading: "ステータス",
     setDeleteTooltip: "削除",
     setAddStatus: "ステータスを追加",
@@ -225,6 +233,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "Invalid date format.",
     pickDate: "Pick a date",
     fieldDates: "Dates",
+    fieldTime: "Time",
     clearDate: "Clear",
     depTooltip: (type) => `${type} dependency — click to remove`,
     emptyMessage: (folder) => `No tasks (.md) found under "${folder}".`,
@@ -258,6 +267,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "Subfolders become groups and the files inside them become tasks.",
     setDefaultZoomName: "Default zoom",
     setDateFormatName: "Date format",
+    setTimezoneName: "Timezone",
+    setTimezoneDesc: "Timezone (GMT offset) used to display and save times. Changing it converts the display of stored times.",
+    setTimezoneSystem: "System (device setting)",
     setStatusesHeading: "Statuses",
     setDeleteTooltip: "Delete",
     setAddStatus: "Add status",
@@ -301,6 +313,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "日期格式无效。",
     pickDate: "选择日期",
     fieldDates: "日期",
+    fieldTime: "时间",
     clearDate: "清除",
     depTooltip: (type) => `${type} 依赖 — 点击移除`,
     emptyMessage: (folder) => `在“${folder}”下未找到任务（.md）。`,
@@ -334,6 +347,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "子文件夹成为分组，其中的文件成为任务。",
     setDefaultZoomName: "默认缩放",
     setDateFormatName: "日期格式",
+    setTimezoneName: "时区",
+    setTimezoneDesc: "用于显示和保存时间的时区（GMT 偏移）。更改后已保存的时间将按新时区换算显示。",
+    setTimezoneSystem: "系统（设备设置）",
     setStatusesHeading: "状态",
     setDeleteTooltip: "删除",
     setAddStatus: "添加状态",
@@ -377,6 +393,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "日期格式無效。",
     pickDate: "選擇日期",
     fieldDates: "日期",
+    fieldTime: "時間",
     clearDate: "清除",
     depTooltip: (type) => `${type} 相依 — 點擊移除`,
     emptyMessage: (folder) => `在「${folder}」下找不到任務（.md）。`,
@@ -410,6 +427,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "子資料夾成為分組，其中的檔案成為任務。",
     setDefaultZoomName: "預設縮放",
     setDateFormatName: "日期格式",
+    setTimezoneName: "時區",
+    setTimezoneDesc: "用於顯示與儲存時間的時區（GMT 偏移）。變更後已儲存的時間會依新時區換算顯示。",
+    setTimezoneSystem: "系統（裝置設定）",
     setStatusesHeading: "狀態",
     setDeleteTooltip: "刪除",
     setAddStatus: "新增狀態",
@@ -453,6 +473,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "날짜 형식이 올바르지 않습니다.",
     pickDate: "날짜 선택",
     fieldDates: "날짜",
+    fieldTime: "시간",
     clearDate: "지우기",
     depTooltip: (type) => `${type} 종속성 — 클릭하여 제거`,
     emptyMessage: (folder) => `"${folder}" 아래에 작업(.md)이 없습니다.`,
@@ -486,6 +507,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "하위 폴더는 그룹이 되고 그 안의 파일은 작업이 됩니다.",
     setDefaultZoomName: "기본 확대/축소",
     setDateFormatName: "날짜 형식",
+    setTimezoneName: "시간대",
+    setTimezoneDesc: "시간 표시와 저장에 사용할 시간대(GMT 오프셋)입니다. 변경하면 저장된 시간이 새 시간대로 환산되어 표시됩니다.",
+    setTimezoneSystem: "시스템(기기 설정)",
     setStatusesHeading: "상태",
     setDeleteTooltip: "삭제",
     setAddStatus: "상태 추가",
@@ -529,6 +553,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "Format de date invalide.",
     pickDate: "Choisir une date",
     fieldDates: "Dates",
+    fieldTime: "Heure",
     clearDate: "Effacer",
     depTooltip: (type) => `Dépendance ${type} — cliquez pour supprimer`,
     emptyMessage: (folder) => `Aucune tâche (.md) trouvée dans « ${folder} ».`,
@@ -562,6 +587,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "Les sous-dossiers deviennent des groupes et les fichiers qu'ils contiennent des tâches.",
     setDefaultZoomName: "Zoom par défaut",
     setDateFormatName: "Format de date",
+    setTimezoneName: "Fuseau horaire",
+    setTimezoneDesc: "Fuseau horaire (décalage GMT) utilisé pour afficher et enregistrer les heures. Le modifier convertit l'affichage des heures enregistrées.",
+    setTimezoneSystem: "Système (appareil)",
     setStatusesHeading: "Statuts",
     setDeleteTooltip: "Supprimer",
     setAddStatus: "Ajouter un statut",
@@ -605,6 +633,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "Formato de fecha no válido.",
     pickDate: "Elegir fecha",
     fieldDates: "Fechas",
+    fieldTime: "Hora",
     clearDate: "Borrar",
     depTooltip: (type) => `Dependencia ${type} — clic para quitar`,
     emptyMessage: (folder) => `No se encontraron tareas (.md) en «${folder}».`,
@@ -638,6 +667,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "Las subcarpetas se convierten en grupos y los archivos dentro en tareas.",
     setDefaultZoomName: "Zoom predeterminado",
     setDateFormatName: "Formato de fecha",
+    setTimezoneName: "Zona horaria",
+    setTimezoneDesc: "Zona horaria (desfase GMT) usada para mostrar y guardar las horas. Al cambiarla, las horas guardadas se muestran convertidas.",
+    setTimezoneSystem: "Sistema (dispositivo)",
     setStatusesHeading: "Estados",
     setDeleteTooltip: "Eliminar",
     setAddStatus: "Añadir estado",
@@ -681,6 +713,7 @@ const STRINGS: Record<Lang, Strings> = {
     invalidDate: "Неверный формат даты.",
     pickDate: "Выбрать дату",
     fieldDates: "Даты",
+    fieldTime: "Время",
     clearDate: "Очистить",
     depTooltip: (type) => `Зависимость ${type} — нажмите, чтобы удалить`,
     emptyMessage: (folder) => `Задачи (.md) не найдены в «${folder}».`,
@@ -714,6 +747,9 @@ const STRINGS: Record<Lang, Strings> = {
     setRecurseDesc: "Подпапки становятся группами, а файлы внутри — задачами.",
     setDefaultZoomName: "Масштаб по умолчанию",
     setDateFormatName: "Формат даты",
+    setTimezoneName: "Часовой пояс",
+    setTimezoneDesc: "Часовой пояс (смещение GMT) для отображения и сохранения времени. При изменении сохранённое время отображается в новом поясе.",
+    setTimezoneSystem: "Система (устройство)",
     setStatusesHeading: "Статусы",
     setDeleteTooltip: "Удалить",
     setAddStatus: "Добавить статус",

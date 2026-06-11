@@ -9,6 +9,7 @@ import {
   reparentTask,
   subtreePaths,
   writeDates,
+  combineDateTime,
   writeField,
   writeBody,
   renameTask,
@@ -152,7 +153,15 @@ export class GanttView extends ItemView {
       if (!(e.key === "z" || e.key === "Z") || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       if (this.app.workspace.getActiveViewOfType(GanttView) !== this) return;
       const ae = activeDocument.activeElement as HTMLElement | null;
-      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
+      // テキスト編集中だけネイティブ undo を優先（time 等の入力はガント側の取り消しを通す）
+      // defer to native undo only while editing text (time-like inputs shouldn't swallow the gantt undo)
+      const editingText =
+        !!ae &&
+        (ae.tagName === "TEXTAREA" ||
+          ae.isContentEditable ||
+          (ae instanceof HTMLInputElement &&
+            ["text", "search", "url", "tel", "password", "email", "number"].includes(ae.type)));
+      if (editingText) return;
       e.preventDefault();
       void this.undo();
     });
@@ -175,18 +184,22 @@ export class GanttView extends ItemView {
     this.optionsHost = root.createDiv({ cls: "ogantt-options" }); // 中身は rerender で差し替え / repopulated on rerender
     this.gridHost = root.createDiv({ cls: "ogantt-host" });
     this.detailEl = root.createDiv({ cls: "ogantt-detail" });
-    // 詳細パネルの外側（ビュー内のどこか）をクリックしたら閉じる。行クリック等で開く操作は
-    // openDetail が後から is-open を付け直すので、新しいタスクの詳細に切り替わる。
+    // 詳細パネルの外側（ビュー内のどこか）をクリックしたら閉じる。キャプチャ段階で閉じることで、
+    // 行クリック等の「開く」ハンドラ（バブリング段階で実行）が後から開き直せる＝詳細の切り替えになる。
     // カレンダー等のポップオーバーは body 直下にあり root を経由しないため閉じない。
-    // clicking anywhere in the view outside the detail panel closes it. Open-actions (row click etc.)
-    // re-add is-open via openDetail afterwards, so they switch the panel instead.
-    // popovers (calendar etc.) live under body, never bubble through root, so they don't close it.
-    root.addEventListener("click", (ev) => {
-      if (!this.detailEl?.hasClass("is-open")) return;
-      const el = ev.target as Element;
-      if (el.closest(".ogantt-detail")) return;
-      this.detailEl.removeClass("is-open");
-    });
+    // clicking anywhere in the view outside the detail panel closes it. Closing in the CAPTURE phase
+    // lets open-handlers (row click etc., which run while bubbling) re-open it afterwards = panel switch.
+    // popovers (calendar etc.) live under body, never pass through root, so they don't close it.
+    root.addEventListener(
+      "click",
+      (ev) => {
+        if (!this.detailEl?.hasClass("is-open")) return;
+        const el = ev.target as Element;
+        if (el.closest(".ogantt-detail")) return;
+        this.detailEl.removeClass("is-open");
+      },
+      true
+    );
   }
 
   private refreshTimer: number | null = null;
@@ -205,7 +218,7 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
     }
-    activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
+    activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
   }
 
   // ディスクから集計し直して再描画 / re-collect from disk, then render
@@ -267,7 +280,33 @@ export class GanttView extends ItemView {
   }
   // 表全体の幅（表示中の列幅の合計）/ total table width (sum of visible column widths)
   private tableWidth(): number {
-    return this.visibleColumns().reduce((w, id) => w + COLUMN_WIDTHS[id], 0);
+    return this.visibleColumns().reduce((w, id) => w + this.colW(id), 0);
+  }
+
+  // 列の実効幅（ユーザー上書き > 既定）/ effective column width (user override > default)
+  private colW(id: ColumnId): number {
+    return this.plugin.settings.columnWidths[id] ?? COLUMN_WIDTHS[id];
+  }
+
+  // 列幅を内容に合わせて自動フィット（グリップのWクリック）。一時的に max-content にして実測する
+  // auto-fit a column to its content (grip double-press): measure by temporarily sizing cells to max-content
+  private autoFitColumn(id: ColumnId, nth: number, th: HTMLElement): void {
+    const cells: HTMLElement[] = [th];
+    this.tbodyEl
+      ?.querySelectorAll<HTMLElement>(`.ogantt-tr:not(.is-group) > .ogantt-td:nth-child(${nth})`)
+      .forEach((el) => cells.push(el));
+    const saved = cells.map((el) => ({ w: el.style.width, f: el.style.flex }));
+    cells.forEach((el) => {
+      el.style.flex = "none";
+      el.style.width = "max-content";
+    });
+    const w = Math.max(40, ...cells.map((el) => el.offsetWidth)) + 2;
+    cells.forEach((el, i) => {
+      el.style.flex = saved[i].f;
+      el.style.width = saved[i].w;
+    });
+    this.plugin.settings.columnWidths[id] = w;
+    void this.plugin.saveSettings(); // 保存（ビューも再描画される）/ persist (views refresh)
   }
   // 列ヘッダのラベル / column header label
   private colLabel(id: ColumnId): string {
@@ -686,13 +725,56 @@ export class GanttView extends ItemView {
     const corner = grid.createDiv({ cls: "ogantt-corner" });
     for (const id of cols) {
       const th = corner.createDiv({ cls: "ogantt-th ogantt-th-sortable" + (id === "name" ? " ogantt-th-name" : "") });
-      if (id !== "name") th.style.width = `${COLUMN_WIDTHS[id]}px`;
+      if (id !== "name") th.style.width = `${this.colW(id)}px`;
       th.createSpan({ text: this.colLabel(id) });
       // アクティブなソート列に ↑/↓ を表示 / show ↑/↓ on the active sort column
       if (this.plugin.settings.sortBy === id) {
         th.createSpan({ cls: "ogantt-sort-arrow", text: this.plugin.settings.sortDir === "asc" ? "↑" : "↓" });
       }
       th.onclick = () => this.toggleSort(id);
+      // 右端グリップ：ドラッグ＝列幅変更（永続化）、素早い2回押し＝内容に合わせて自動フィット
+      // right-edge grip: drag to resize the column (persisted), quick double-press auto-fits to content
+      const grip = th.createDiv({ cls: "ogantt-col-grip" });
+      grip.addEventListener("click", (e) => e.stopPropagation()); // ソートを抑止 / don't toggle sort
+      let lastDown = 0;
+      grip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const nth = cols.indexOf(id) + 1;
+        if (e.timeStamp - lastDown < 400) {
+          // Wクリック判定（pointerdown の preventDefault で dblclick が来ない環境があるため自前判定）
+          // manual double-press detection (dblclick may be suppressed by preventDefault on pointerdown)
+          lastDown = 0;
+          this.autoFitColumn(id, nth, th);
+          return;
+        }
+        lastDown = e.timeStamp;
+        grip.setPointerCapture(e.pointerId);
+        const startX = e.clientX;
+        const startW = this.colW(id);
+        let moved = false;
+        const onMove = (ev: PointerEvent) => {
+          moved = true;
+          const w = Math.max(40, Math.round(startW + ev.clientX - startX));
+          this.plugin.settings.columnWidths[id] = w;
+          // ドラッグ中は再描画せず幅だけ反映 / live-apply widths without a full re-render
+          grid.style.gridTemplateColumns = `${this.tableWidth()}px ${width}px`;
+          if (id !== "name") {
+            th.style.width = `${w}px`;
+            this.tbodyEl
+              ?.querySelectorAll<HTMLElement>(`.ogantt-tr:not(.is-group) > .ogantt-td:nth-child(${nth})`)
+              .forEach((el) => (el.style.width = `${w}px`));
+          }
+        };
+        const onUp = () => {
+          grip.removeEventListener("pointermove", onMove);
+          // 実際に動かしたときだけ保存（単押しでDOMを作り直さない＝2回押し判定を生かす）
+          // save only after an actual drag (a plain press doesn't re-render, keeping double-press alive)
+          if (moved) void this.plugin.saveSettings();
+        };
+        grip.addEventListener("pointermove", onMove);
+        grip.addEventListener("pointerup", onUp, { once: true });
+      });
     }
 
     // (2) 日付軸 / date axis
@@ -783,7 +865,7 @@ export class GanttView extends ItemView {
             });
           } else {
             const td = tr.createDiv({ cls: "ogantt-td" });
-            td.style.width = `${COLUMN_WIDTHS[id]}px`;
+            td.style.width = `${this.colW(id)}px`;
             this.renderCell(td, row, id);
           }
         }
@@ -1227,6 +1309,9 @@ export class GanttView extends ItemView {
     handle.addEventListener("pointerdown", (ev: PointerEvent) => {
       ev.preventDefault();
       ev.stopPropagation();
+      // preventDefault はフォーカスを移さないため、入力中の欄を明示的に外す（Ctrl+Z をガント側へ）
+      // preventDefault keeps focus on a previously focused input; blur it so Ctrl+Z reaches the gantt undo
+      (activeDocument.activeElement as HTMLElement | null)?.blur?.();
       this.dragged.set(g, false);
       const startX = ev.clientX;
       handle.setPointerCapture(ev.pointerId);
@@ -1591,6 +1676,8 @@ export class GanttView extends ItemView {
     const fmt = this.plugin.settings.dateFormat;
     const k = this.plugin.settings.keys;
     const state = { start: t.start ?? "", end: t.end ?? "" };
+    // 時刻（任意）。日付があるときだけ編集できる / optional time of day, editable only when the date is set
+    const times = { start: t.startTime ?? "", end: t.endTime ?? "" };
 
     const row = meta.createDiv({ cls: "ogantt-detail-row" });
     row.createSpan({ cls: "ogantt-detail-label", text: tr().fieldDates });
@@ -1599,16 +1686,21 @@ export class GanttView extends ItemView {
     const painters: (() => void)[] = [];
     const repaint = () => painters.forEach((p) => p());
 
-    // 開始・終了を両方フロントマターへ（空は削除）/ persist both ends (delete when empty)
+    // 開始・終了を両方フロントマターへ（空は削除・時刻があれば日付に併記）
+    // persist both ends (delete when empty; append the time of day when set)
     const save = async (): Promise<void> => {
       if (!this.selectedPath) return;
       // 「開始のみ・終了なし」は無効ルール → 終了=開始 / "start only" isn't valid: fill end = start
-      if (state.start && !state.end) {
-        state.end = state.start;
-        repaint(); // 補正を即時反映 / reflect the fill right away
+      if (state.start && !state.end) state.end = state.start;
+      // 同日で 開始時刻 > 終了時刻 は無効 → 終了=開始に補正 / clamp so start ≤ end within the same day
+      if (state.start && state.start === state.end && times.start && times.end && times.end < times.start) {
+        times.end = times.start;
       }
-      await writeField(this.app, this.selectedPath, k.start, state.start || undefined);
-      await writeField(this.app, this.selectedPath, k.end, state.end || undefined);
+      repaint(); // 補正を即時反映 / reflect any clamping right away
+      await this.pushUndo(tr().undoReschedule(t.name)); // Ctrl+Z で取り消し可 / undoable
+      const tz = this.plugin.settings.tz;
+      await writeField(this.app, this.selectedPath, k.start, combineDateTime(state.start || undefined, times.start, tz));
+      await writeField(this.app, this.selectedPath, k.end, combineDateTime(state.end || undefined, times.end, tz));
       await this.refresh();
     };
 
@@ -1624,7 +1716,8 @@ export class GanttView extends ItemView {
         const iso = state[which];
         // ×の表示/非表示は .is-empty に応じて CSS 側で制御 / × visibility is handled by CSS via .is-empty
         if (iso) {
-          val.setText(formatDate(iso, fmt));
+          // 時刻があれば日付の後ろに表示 / show the time of day after the date when set
+          val.setText(formatDate(iso, fmt) + (times[which] ? ` ${times[which]}` : ""));
           chip.removeClass("is-empty");
         } else {
           val.setText(which === "start" ? tr().fieldStart : tr().fieldDue);
@@ -1646,7 +1739,87 @@ export class GanttView extends ItemView {
 
     makeChip("start");
     makeChip("end");
+
+    // 時刻入力（開始・終了）：手動入力は1分単位、時計アイコンは時・分（10分刻み）ドロップダウン
+    // ネイティブピッカーは step を無視して1分刻みになる（Chromium）ため、アイコン側は自前ポップアップ
+    // time-of-day for start & end: manual typing at 1-minute precision, the clock icon opens
+    // hour + minute (10-min steps) dropdowns (Chromium's native picker ignores `step`)
+    const trow = meta.createDiv({ cls: "ogantt-detail-row" });
+    trow.createSpan({ cls: "ogantt-detail-label", text: tr().fieldTime });
+    const tfield = trow.createDiv({ cls: "ogantt-detail-field ogantt-time-inputs" });
+    const makeTime = (which: "start" | "end"): void => {
+      const wrap = tfield.createDiv({ cls: "ogantt-time-wrap" });
+      const inp = wrap.createEl("input", { cls: "ogantt-time-input", type: "time" });
+      const btn = wrap.createEl("button", { cls: "clickable-icon ogantt-time-btn" });
+      setIcon(btn, "clock");
+      btn.setAttr("aria-label", tr().fieldTime);
+      const paint = () => {
+        inp.value = times[which];
+        const dis = !state[which] || (which === "start" && t.milestone);
+        inp.disabled = dis;
+        btn.disabled = dis;
+      };
+      painters.push(paint);
+      const apply = (v: string) => {
+        times[which] = v;
+        // 同日で開始>終了になったら常に「終了=開始」へ補正（開始は変更しない）
+        // if start > end on the same day, always clamp end = start (never move the start)
+        if (state.start && state.start === state.end && times.start && times.end && times.end < times.start) {
+          times.end = times.start;
+        }
+        repaint(); // チップの時刻表示を更新 / refresh the time shown on the chips
+        void save();
+      };
+      inp.addEventListener("change", () => apply(inp.value)); // 手動入力は1分単位OK / manual entry: any minute
+      btn.addEventListener("click", () => this.openTimeDropdown(btn, times[which], apply));
+    };
+    makeTime("start");
+    makeTime("end");
     repaint();
+  }
+
+  // 時計アイコンのポップアップ：時・分（10分刻み）のドロップダウンで時刻を選ぶ。×で時刻クリア
+  // clock-icon popup: pick a time with hour + minute (10-min steps) dropdowns; × clears the time
+  private openTimeDropdown(anchor: HTMLElement, current: string, apply: (v: string) => void): void {
+    activeDocument.querySelectorAll(".ogantt-timepick").forEach((e) => e.remove());
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    const pop = activeDocument.body.createDiv({ cls: "ogantt-timepick" });
+    const close = () => {
+      pop.remove();
+      activeDocument.removeEventListener("pointerdown", onOutside, true);
+      activeDocument.removeEventListener("keydown", onKey, true);
+    };
+    const onOutside = (e: PointerEvent) => {
+      const tg = e.target as Node;
+      if (!pop.contains(tg) && !anchor.contains(tg)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+    };
+    activeDocument.addEventListener("pointerdown", onOutside, true);
+    activeDocument.addEventListener("keydown", onKey, true);
+
+    const [ch, cm] = /^\d{2}:\d{2}$/.test(current) ? current.split(":") : ["09", "00"];
+    const hourSel = pop.createEl("select", { cls: "dropdown" });
+    for (let h = 0; h < 24; h++) hourSel.createEl("option", { value: pad(h), text: pad(h) });
+    hourSel.value = ch;
+    pop.createSpan({ text: ":" });
+    const minSel = pop.createEl("select", { cls: "dropdown" });
+    for (let m = 0; m < 60; m += 10) minSel.createEl("option", { value: pad(m), text: pad(m) });
+    // 10分刻みに乗らない既存値（手動入力等）も選べるように / keep an off-grid minute (manual entry) selectable
+    if (!minSel.querySelector(`option[value="${cm}"]`)) minSel.createEl("option", { value: cm, text: cm });
+    minSel.value = cm;
+    const onPick = () => apply(`${hourSel.value}:${minSel.value}`);
+    hourSel.addEventListener("change", onPick);
+    minSel.addEventListener("change", onPick);
+    const clr = pop.createEl("button", { cls: "clickable-icon" });
+    setIcon(clr, "x");
+    clr.setAttr("aria-label", tr().clearDate);
+    clr.onclick = () => { apply(""); close(); };
+
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 4}px`;
+    pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8))}px`;
   }
 
   // 非 name 列のセル内容を描画 / fill a non-name cell by column id
@@ -1665,7 +1838,8 @@ export class GanttView extends ItemView {
           td.setText("◆");
           td.addClass("ogantt-td-ms");
         } else {
-          td.setText(formatDate(t.start, fmt));
+          // 時刻があれば併記 / append the time of day when set
+          td.setText(formatDate(t.start, fmt) + (t.startTime ? ` ${t.startTime}` : ""));
           this.makeDateCell(td, t, "start");
         }
         break;
@@ -1673,7 +1847,7 @@ export class GanttView extends ItemView {
         if (rolled) {
           td.setText(formatDate(rolled.end, fmt));
         } else {
-          td.setText(formatDate(t.end, fmt));
+          td.setText(formatDate(t.end, fmt) + (t.endTime ? ` ${t.endTime}` : ""));
           this.makeDateCell(td, t, "end");
         }
         break;
@@ -1724,8 +1898,15 @@ export class GanttView extends ItemView {
     const save = async (): Promise<void> => {
       // 「開始のみ・終了なし」は無効ルール → 終了=開始 / "start only" isn't valid: fill end = start
       if (state.start && !state.end) state.end = state.start;
-      await writeField(this.app, t.path, k.start, state.start || undefined);
-      await writeField(this.app, t.path, k.end, state.end || undefined);
+      // 既存の時刻は日付変更後も引き継ぐ（同日で逆転したら終了=開始に補正）
+      // keep the existing time of day across the date change (clamp if inverted on the same day)
+      const ts = t.startTime;
+      let te = t.endTime;
+      if (state.start && state.start === state.end && ts && te && te < ts) te = ts;
+      await this.pushUndo(tr().undoReschedule(t.name)); // Ctrl+Z で取り消し可 / undoable
+      const tz = this.plugin.settings.tz;
+      await writeField(this.app, t.path, k.start, combineDateTime(state.start || undefined, ts, tz));
+      await writeField(this.app, t.path, k.end, combineDateTime(state.end || undefined, te, tz));
       await this.refresh();
     };
     // repaint はテーブル側では不要（save→refresh で再描画される）/ no chip repaint needed here
@@ -1766,15 +1947,16 @@ export class GanttView extends ItemView {
     let mode: "day" | "year" = "day"; // 日ビュー / 年（12ヶ月）ビュー / day view or year (12-month) view
     const months = moment.monthsShort(); // ロケールの月名略称 / localized short month names
 
-    // 端点を1つ設定して交互に切り替え（逆転は補正）/ set one endpoint, then alternate (order kept valid)
+    // 端点を1つ設定して交互に切り替え。逆転時は常に「終了=開始」へ補正（開始は変更しない）
+    // set one endpoint, then alternate; on inversion always clamp end = start (never move the start)
     const pick = (ds: string) => {
       if (act === "start") {
         state.start = ds;
-        if (state.end && ds > state.end) state.end = ds;
+        if (state.end && ds > state.end) state.end = ds; // 終了が前に残ったら追従 / end follows forward
         act = "end";
       } else {
-        state.end = ds;
-        if (state.start && ds < state.start) state.start = ds;
+        // 開始より前を選んだら終了=開始 / picking before the start clamps end to the start
+        state.end = state.start && ds < state.start ? state.start : ds;
         act = "start";
       }
       repaint();

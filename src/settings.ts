@@ -10,8 +10,12 @@ export interface GanttSettings {
   statuses: StatusDef[];
   defaultZoom: ZoomMode;
   dateFormat: DateFormat; // 表示用の日付フォーマット / display-only date format
+  // 時刻の表示/保存に使うタイムゾーン。"system"=端末、または "+09:00" 等の固定 GMT オフセット
+  // timezone for displaying/saving times: "system" (device) or a fixed GMT offset like "+09:00"
+  tz: string;
   detailWidth: number; // 詳細パネルの幅(px) / detail panel width (px)
   visibleColumns: string[]; // 表示する任意列（name は常時表示）/ optional columns shown (name is always shown)
+  columnWidths: Record<string, number>; // 列幅の上書き(px)。未設定列は既定幅 / per-column width overrides (px); unset = default
   sortBy: string; // ソート列 id（name/start/end/assignee/status）/ sort column id
   sortDir: "asc" | "desc"; // ソート方向 / sort direction
   // タグ/フォルダの色（手動上書き。未登録は名前ハッシュで自動生成）/ manual color overrides (unset → auto from name hash)
@@ -41,8 +45,10 @@ export const DEFAULT_SETTINGS: GanttSettings = {
   ],
   defaultZoom: "Week",
   dateFormat: "YYYY/MM/DD",
+  tz: "system",
   detailWidth: 380,
   visibleColumns: ["start", "end"],
+  columnWidths: {},
   sortBy: "start",
   sortDir: "asc",
   tagColors: [],
@@ -108,6 +114,22 @@ export class GanttSettingTab extends PluginSettingTab {
     );
   }
 
+  private ctlTimezone(setting: Setting): void {
+    const s = this.plugin.settings;
+    // GMT-12:00〜+14:00 を30分刻み＋ :45 帯（ネパール等）/ -12:00..+14:00 in 30-min steps plus the :45 zones
+    const mins: number[] = [];
+    for (let m = -12 * 60; m <= 14 * 60; m += 30) mins.push(m);
+    mins.push(5 * 60 + 45, 8 * 60 + 45, 12 * 60 + 45, 13 * 60 + 45);
+    mins.sort((a, b) => a - b);
+    const opts: Record<string, string> = { system: tr().setTimezoneSystem };
+    for (const m of mins) {
+      const a = Math.abs(m);
+      const v = `${m < 0 ? "-" : "+"}${String(Math.floor(a / 60)).padStart(2, "0")}:${String(a % 60).padStart(2, "0")}`;
+      opts[v] = `GMT${v}`;
+    }
+    setting.addDropdown((d) => d.addOptions(opts).setValue(s.tz).onChange((v) => { s.tz = v; this.save(); }));
+  }
+
   private ctlStatusRow(setting: Setting, st: StatusDef): void {
     setting
       .addText((t) => t.setPlaceholder(tr().setStatusId).setValue(st.id).onChange((v) => { st.id = v.trim(); this.save(); }))
@@ -147,6 +169,7 @@ export class GanttSettingTab extends PluginSettingTab {
     this.ctlRecurse(new Setting(containerEl).setName(tr().setRecurseName).setDesc(tr().setRecurseDesc));
     this.ctlZoom(new Setting(containerEl).setName(tr().setDefaultZoomName));
     this.ctlDateFormat(new Setting(containerEl).setName(tr().setDateFormatName));
+    this.ctlTimezone(new Setting(containerEl).setName(tr().setTimezoneName).setDesc(tr().setTimezoneDesc));
 
     // ステータス一覧（id/ラベル/色＋削除、末尾に追加ボタン）/ status list (id/label/color + delete, add button at the end)
     new Setting(containerEl).setName(tr().setStatusesHeading).setHeading();
