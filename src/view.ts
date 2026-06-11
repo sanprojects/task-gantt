@@ -159,7 +159,7 @@ export class GanttView extends ItemView {
         !!ae &&
         (ae.tagName === "TEXTAREA" ||
           ae.isContentEditable ||
-          (ae instanceof HTMLInputElement &&
+          (ae.instanceOf(HTMLInputElement) &&
             ["text", "search", "url", "tel", "password", "email", "number"].includes(ae.type)));
       if (editingText) return;
       e.preventDefault();
@@ -295,16 +295,10 @@ export class GanttView extends ItemView {
     this.tbodyEl
       ?.querySelectorAll<HTMLElement>(`.ogantt-tr:not(.is-group) > .ogantt-td:nth-child(${nth})`)
       .forEach((el) => cells.push(el));
-    const saved = cells.map((el) => ({ w: el.style.width, f: el.style.flex }));
-    cells.forEach((el) => {
-      el.style.flex = "none";
-      el.style.width = "max-content";
-    });
+    // 計測用クラスを一時付与（!important でインライン幅を上書き）/ toggle a measuring class (overrides inline widths)
+    cells.forEach((el) => el.addClass("ogantt-measure"));
     const w = Math.max(40, ...cells.map((el) => el.offsetWidth)) + 2;
-    cells.forEach((el, i) => {
-      el.style.flex = saved[i].f;
-      el.style.width = saved[i].w;
-    });
+    cells.forEach((el) => el.removeClass("ogantt-measure"));
     this.plugin.settings.columnWidths[id] = w;
     void this.plugin.saveSettings(); // 保存（ビューも再描画される）/ persist (views refresh)
   }

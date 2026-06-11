@@ -904,3 +904,9 @@ button.ogantt-cal-title:hover {
 .ogantt-tr > .ogantt-td:not(:last-child) {
   border-right: 1px solid var(--background-modifier-border);
 }
+
+/* 自動フィット計測用（一時付与。インライン幅と flex を上書き）/ temporary class for auto-fit measurement */
+.ogantt-measure {
+  flex: none !important;
+  width: max-content !important;
+}
