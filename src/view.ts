@@ -295,10 +295,18 @@ export class GanttView extends ItemView {
     this.tbodyEl
       ?.querySelectorAll<HTMLElement>(`.ogantt-tr:not(.is-group) > .ogantt-td:nth-child(${nth})`)
       .forEach((el) => cells.push(el));
-    // 計測用クラスを一時付与（!important でインライン幅を上書き）/ toggle a measuring class (overrides inline widths)
-    cells.forEach((el) => el.addClass("ogantt-measure"));
+    // 計測中はインライン幅を外して計測用クラスを付与（!important を使わないため）
+    // remove inline widths while measuring so the measuring class applies without !important
+    const saved = cells.map((el) => el.style.width);
+    cells.forEach((el) => {
+      el.style.removeProperty("width");
+      el.addClass("ogantt-measure");
+    });
     const w = Math.max(40, ...cells.map((el) => el.offsetWidth)) + 2;
-    cells.forEach((el) => el.removeClass("ogantt-measure"));
+    cells.forEach((el, i) => {
+      el.removeClass("ogantt-measure");
+      el.style.width = saved[i];
+    });
     this.plugin.settings.columnWidths[id] = w;
     void this.plugin.saveSettings(); // 保存（ビューも再描画される）/ persist (views refresh)
   }

@@ -905,8 +905,12 @@ button.ogantt-cal-title:hover {
   border-right: 1px solid var(--background-modifier-border);
 }
 
-/* 自動フィット計測用（一時付与。インライン幅と flex を上書き）/ temporary class for auto-fit measurement */
-.ogantt-measure {
-  flex: none !important;
-  width: max-content !important;
+/* 自動フィット計測用（一時付与。計測中はインライン幅を外すので !important 不要。
+   2クラスの詳細度で .ogantt-th / .ogantt-td-name の flex 指定に勝つ）
+   temporary class for auto-fit measurement: inline widths are removed while measuring,
+   and the two-class specificity beats the .ogantt-th / .ogantt-td-name flex rules */
+.ogantt-th.ogantt-measure,
+.ogantt-td.ogantt-measure {
+  flex: none;
+  width: max-content;
 }
