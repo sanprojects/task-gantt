@@ -102,6 +102,9 @@ export class GanttView extends ItemView {
   // バーがドラッグされたか（ドラッグ直後のクリック抑止用）/ whether a bar was dragged (to suppress the trailing click)
   private dragged = new WeakMap<SVGGElement, boolean>();
 
+  // 開いている簡易編集ポップオーバーを閉じる関数（なければ未設定）/ closer for the open quick-edit popover, if any
+  private closeQuickEdit: (() => void) | null = null;
+
   // Fit モードでペイン幅に追従するための再描画タイマー / debounce timer to re-fit in Fit mode
   private fitTimer: number | null = null;
 
@@ -218,6 +221,7 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
     }
+    this.closeQuickEdit?.(); // 簡易編集ポップオーバーも閉じる / also close the quick-edit popover
     activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
   }
 
@@ -951,6 +955,7 @@ export class GanttView extends ItemView {
         const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2 + 4, class: "ogantt-bar-label" });
         lbl.textContent = t.name;
         rg.appendChild(lbl);
+        rg.addEventListener("click", (ev) => { ev.stopPropagation(); this.openQuickEdit(t.path, ev); });
         rg.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.openDetail(t.path); });
         svg.appendChild(rg);
         return;
@@ -1023,8 +1028,13 @@ export class GanttView extends ItemView {
       g.addEventListener("mouseenter", () => handles.forEach((h) => h.classList.add("is-visible")));
       g.addEventListener("mouseleave", () => handles.forEach((h) => h.classList.remove("is-visible")));
 
-      // バーはダブルクリックで詳細パネルを開く（シングルクリックでは開かない＝ドラッグ操作と区別）
-      // open the detail panel on double-click only (single click is left for dragging)
+      // シングルクリック＝簡易編集ポップオーバー、ダブルクリック＝詳細パネル（ドラッグ直後は抑止）
+      // single click opens the quick-edit popover; double-click opens the full detail panel (suppressed right after a drag)
+      g.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (this.dragged.get(g)) return; // ドラッグだった＝開かない / it was a drag, not a click
+        this.openQuickEdit(t.path, ev);
+      });
       g.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
         void this.openDetail(t.path);
@@ -1478,8 +1488,107 @@ export class GanttView extends ItemView {
     this.rerender();
   }
 
+  // ----- 簡易編集ポップオーバー（バーをシングルクリック）/ quick-edit popover (single click on a bar) -----
+  // 詳細パネルより軽量。主要項目（名前・期間・ステータス・進捗）だけをその場で編集する。
+  // lighter than the slide-over: edit just the key fields (name, dates, status, progress) right at the bar.
+  private openQuickEdit(path: string, ev: MouseEvent): void {
+    this.closeQuickEdit?.(); // 既存のポップオーバーを閉じる / drop any previously open popover
+    const t = this.tasks.find((x) => x.path === path);
+    if (!t) return;
+    this.selectedPath = path;
+    // 選択行ハイライト / reflect the selection in the table
+    this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((el) => el.removeClass("is-selected"));
+    this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`)?.addClass("is-selected");
+
+    const k = this.plugin.settings.keys;
+    const pop = activeDocument.body.createDiv({ cls: "ogantt-quickedit" });
+
+    // ヘッダー：タイトル（編集でリネーム）＋ ノートを開く ＋ 閉じる / header: title (rename) + open-as-note + close
+    const head = pop.createDiv({ cls: "ogantt-qe-head" });
+    const titleInput = head.createEl("input", { cls: "ogantt-qe-title", type: "text" });
+    titleInput.value = t.name;
+    titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") titleInput.blur(); });
+    titleInput.addEventListener("change", () => void (async () => {
+      const np = await renameTask(this.app, this.selectedPath!, titleInput.value);
+      if (np) this.selectedPath = np;
+      await this.refresh();
+    })());
+    const openNote = head.createEl("button", { cls: "clickable-icon" });
+    setIcon(openNote, "external-link");
+    openNote.setAttr("aria-label", tr().openAsNote);
+    openNote.onclick = () => { void this.app.workspace.openLinkText(this.selectedPath ?? path, "", true); close(); };
+    const closeBtn = head.createEl("button", { cls: "clickable-icon" });
+    setIcon(closeBtn, "x");
+    closeBtn.onclick = () => close();
+
+    const body = pop.createDiv({ cls: "ogantt-qe-body" });
+
+    // 期間：詳細パネルと同じレンジカレンダーを再利用 / dates: reuse the same range calendar as the detail panel
+    this.buildDates(body, t);
+
+    // ステータス / status
+    const sRow = body.createDiv({ cls: "ogantt-detail-row" });
+    sRow.createSpan({ cls: "ogantt-detail-label", text: tr().fieldStatus });
+    const statusSel = sRow.createDiv({ cls: "ogantt-detail-field" }).createEl("select");
+    statusSel.createEl("option", { text: "—", value: "" });
+    for (const s of this.plugin.settings.statuses) {
+      const opt = statusSel.createEl("option", { text: s.label, value: s.id });
+      if (s.id === t.status) opt.selected = true;
+    }
+    statusSel.addEventListener("change", () => void this.saveField(k.status, statusSel.value));
+
+    // 進捗（スライダー＋%。離したら保存＝バーに反映）/ progress slider + % label, saved on release
+    const pRow = body.createDiv({ cls: "ogantt-detail-row" });
+    pRow.createSpan({ cls: "ogantt-detail-label", text: tr().fieldProgress });
+    const pField = pRow.createDiv({ cls: "ogantt-detail-field ogantt-progress-field" });
+    const progRange = pField.createEl("input", { type: "range" });
+    progRange.min = "0";
+    progRange.max = "100";
+    progRange.step = "5";
+    progRange.value = String(t.progress ?? 0);
+    const progVal = pField.createSpan({ cls: "ogantt-progress-val", text: `${t.progress ?? 0}%` });
+    progRange.addEventListener("input", () => progVal.setText(`${progRange.value}%`));
+    progRange.addEventListener("change", () => void (async () => {
+      if (!this.selectedPath) return;
+      const n = Number(progRange.value);
+      await writeField(this.app, this.selectedPath, k.progress, n > 0 ? n : undefined);
+      await this.refresh();
+    })());
+
+    // 位置決め：クリック位置の近く・画面内にクランプ / position near the cursor, clamped to the viewport
+    const margin = 8;
+    pop.style.left = `${ev.clientX}px`;
+    pop.style.top = `${ev.clientY + 12}px`;
+    const r = pop.getBoundingClientRect(); // 実寸でクランプ / clamp using the real size
+    pop.style.left = `${Math.max(margin, Math.min(ev.clientX, window.innerWidth - r.width - margin))}px`;
+    if (ev.clientY + 12 + r.height > window.innerHeight - margin) {
+      pop.style.top = `${Math.max(margin, ev.clientY - 12 - r.height)}px`;
+    }
+
+    // 閉じる：外側クリック / Esc（カレンダー等のサブポップオーバーは body 直下なので除外）
+    // close on outside click / Esc (calendar & time sub-popovers live under body, so don't count them as "outside")
+    const onOutside = (e: PointerEvent) => {
+      const tg = e.target as HTMLElement;
+      if (pop.contains(tg)) return;
+      if (tg.closest?.(".ogantt-cal, .ogantt-timepick")) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+    const close = () => {
+      pop.remove();
+      activeDocument.removeEventListener("pointerdown", onOutside, true);
+      activeDocument.removeEventListener("keydown", onKey, true);
+      if (this.closeQuickEdit === close) this.closeQuickEdit = null;
+    };
+    this.closeQuickEdit = close;
+    activeDocument.addEventListener("pointerdown", onOutside, true);
+    activeDocument.addEventListener("keydown", onKey, true);
+    window.setTimeout(() => titleInput.focus(), 0);
+  }
+
   // ----- 詳細パネル（編集モード）/ editable detail slide-over -----
   private async openDetail(path: string, focusTitle = false): Promise<void> {
+    this.closeQuickEdit?.(); // 簡易ポップオーバーが開いていれば閉じる / drop the quick popover if open
     this.selectedPath = path;
     const t = this.tasks.find((x) => x.path === path);
     if (!t) return;
