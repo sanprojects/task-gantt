@@ -878,7 +878,16 @@ export class GanttView extends ItemView {
             this.renderCell(td, row, id);
           }
         }
-        tr.onclick = () => void this.openDetail(t.path);
+        // シングルクリック＝詳細パネル、ダブルクリック＝ノートを新規タブで（バーと同じ挙動）
+        // single click = detail panel; double click = open the note in a new tab (same as the bars)
+        tr.addEventListener("click", () => {
+          if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
+          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; void this.openDetail(t.path); }, 250);
+        });
+        tr.addEventListener("dblclick", () => {
+          if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
+          void this.app.workspace.openLinkText(t.path, "", "tab"); // 新規タブで開く / open in a new tab
+        });
         if (this.groupBy === "folder") {
           this.makeDraggableTask(tr, t.path);
           // タスク行へドロップ＝そのタスクのサブタスクにする（親フォルダへ同居）/ drop onto a task = make it that task's subtask
