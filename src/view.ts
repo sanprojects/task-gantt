@@ -389,13 +389,21 @@ export class GanttView extends ItemView {
   private onWheelZoom(e: WheelEvent): void {
     const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
     if (!main) return;
+    const rect = main.getBoundingClientRect();
+    // 左の固定テーブル列の上ではズームしない＝ブラウザのネイティブ縦スクロールで行を送れる
+    // （タスクが多くて縦スクロールが出たとき、ここからスクロールできる）。
+    // over the pinned left table column, don't hijack the wheel — let the browser scroll the rows
+    // natively (so a long task list is scrollable). Zoom/h-scroll apply over the timeline only.
+    if (e.clientX - rect.left < this.tableWidth()) {
+      this.wheelRouter.reset(); // タイムラインに戻ったとき軸状態が混ざらないように / clear axis state so it doesn't carry over
+      return; // preventDefault しない＝ネイティブスクロール / no preventDefault: native scroll handles it
+    }
     const axis = this.wheelRouter.route(e);
     if (axis == null) {
       // まだ方向を判定中＝既定スクロールを止めて次イベントを待つ / still deciding: swallow the default scroll and wait
       e.preventDefault();
       return;
     }
-    const rect = main.getBoundingClientRect();
     if (axis === "x") {
       // 横スワイプ＝タイムライン横スクロールのみ。縦成分は無視 / horizontal swipe scrolls the timeline only; vertical component ignored
       e.preventDefault();
