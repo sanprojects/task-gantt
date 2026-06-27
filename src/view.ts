@@ -1231,12 +1231,12 @@ export class GanttView extends ItemView {
           violation = dayIndex(sStart) <= dayIndex(pEndD);
           if (tx - sx0 > GAP * 2) {
             const mx = sx0 + Math.max(GAP, (tx - sx0) / 2);
-            d = `M ${sx0} ${py} L ${mx} ${py} L ${mx} ${sy} L ${tx} ${sy}`;
+            d = this.elbowPath([[sx0, py], [mx, py], [mx, sy], [tx, sy]]);
             mxX = mx;
           } else {
             const ax = sx0 + GAP;
             const bx = tx - GAP;
-            d = `M ${sx0} ${py} L ${ax} ${py} L ${ax} ${mid} L ${bx} ${mid} L ${bx} ${sy} L ${tx} ${sy}`;
+            d = this.elbowPath([[sx0, py], [ax, py], [ax, mid], [bx, mid], [bx, sy], [tx, sy]]);
             mxX = (ax + bx) / 2;
           }
           arrowD = `M ${tx} ${sy} l -7 -4 l 0 8 z`; // 右向き / points right
@@ -1246,7 +1246,7 @@ export class GanttView extends ItemView {
           const tx = sLeft;
           violation = dayIndex(sStart) < dayIndex(pStartD);
           const leftMost = Math.min(sx0, tx) - GAP;
-          d = `M ${sx0} ${py} L ${leftMost} ${py} L ${leftMost} ${sy} L ${tx} ${sy}`;
+          d = this.elbowPath([[sx0, py], [leftMost, py], [leftMost, sy], [tx, sy]]);
           mxX = leftMost;
           arrowD = `M ${tx} ${sy} l -7 -4 l 0 8 z`; // 右向き / points right
         } else {
@@ -1255,7 +1255,7 @@ export class GanttView extends ItemView {
           const tx = sRight;
           violation = dayIndex(sEnd) < dayIndex(pEndD);
           const rightMost = Math.max(sx0, tx) + GAP;
-          d = `M ${sx0} ${py} L ${rightMost} ${py} L ${rightMost} ${sy} L ${tx} ${sy}`;
+          d = this.elbowPath([[sx0, py], [rightMost, py], [rightMost, sy], [tx, sy]]);
           mxX = rightMost;
           arrowD = `M ${tx} ${sy} l 7 -4 l 0 8 z`; // 左向き / points left
         }
@@ -2076,6 +2076,28 @@ export class GanttView extends ItemView {
     const el = activeDocument.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
     return el;
+  }
+
+  // 直角の折れ線を軽く丸める / build an SVG path from points, rounding the right-angle elbows
+  private elbowPath(pts: Array<[number, number]>, r = 4): string {
+    if (pts.length < 3) return pts.map((p, i) => `${i ? "L" : "M"} ${p[0]} ${p[1]}`).join(" ");
+    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const [px, py] = pts[i - 1];
+      const [cx, cy] = pts[i];
+      const [nx, ny] = pts[i + 1];
+      const d1 = Math.hypot(cx - px, cy - py) || 1;
+      const d2 = Math.hypot(nx - cx, ny - cy) || 1;
+      const rr = Math.min(r, d1 / 2, d2 / 2); // セグメント長を超えないよう半径を制限 / clamp to segment length
+      const e1x = cx + ((px - cx) / d1) * rr;
+      const e1y = cy + ((py - cy) / d1) * rr;
+      const e2x = cx + ((nx - cx) / d2) * rr;
+      const e2y = cy + ((ny - cy) / d2) * rr;
+      d += ` L ${e1x} ${e1y} Q ${cx} ${cy} ${e2x} ${e2y}`;
+    }
+    const last = pts[pts.length - 1];
+    d += ` L ${last[0]} ${last[1]}`;
+    return d;
   }
 }
 
