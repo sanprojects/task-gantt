@@ -102,6 +102,9 @@ export class GanttView extends ItemView {
   // バーがドラッグされたか（ドラッグ直後のクリック抑止用）/ whether a bar was dragged (to suppress the trailing click)
   private dragged = new WeakMap<SVGGElement, boolean>();
 
+  // シングル/ダブルクリック判別タイマー（ダブルが来たらシングルを取消）/ single-vs-double click timer (double cancels the pending single)
+  private barClickTimer: number | null = null;
+
   // Fit モードでペイン幅に追従するための再描画タイマー / debounce timer to re-fit in Fit mode
   private fitTimer: number | null = null;
 
@@ -217,6 +220,10 @@ export class GanttView extends ItemView {
     if (this.fitTimer != null) {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
+    }
+    if (this.barClickTimer != null) {
+      window.clearTimeout(this.barClickTimer);
+      this.barClickTimer = null;
     }
     activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
   }
@@ -951,7 +958,16 @@ export class GanttView extends ItemView {
         const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2 + 4, class: "ogantt-bar-label" });
         lbl.textContent = t.name;
         rg.appendChild(lbl);
-        rg.addEventListener("click", (ev) => { ev.stopPropagation(); void this.openDetail(t.path); });
+        rg.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
+          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; void this.openDetail(t.path); }, 250);
+        });
+        rg.addEventListener("dblclick", (ev) => {
+          ev.stopPropagation();
+          if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
+          void this.app.workspace.openLinkText(t.path, "", "tab"); // 新規タブで開く / open in a new tab
+        });
         svg.appendChild(rg);
         return;
       }
@@ -1023,12 +1039,23 @@ export class GanttView extends ItemView {
       g.addEventListener("mouseenter", () => handles.forEach((h) => h.classList.add("is-visible")));
       g.addEventListener("mouseleave", () => handles.forEach((h) => h.classList.remove("is-visible")));
 
-      // シングルクリックで横の詳細パネルを開く（ドラッグ直後は抑止＝移動操作と区別）
-      // single click opens the side detail panel (suppressed right after a drag, to tell it from a move)
+      // シングルクリック＝横の詳細パネル、ダブルクリック＝ノートを新規タブで開く。
+      // ダブルが来たらシングルを取消すため、シングルは少し遅延させる。ドラッグ直後は抑止。
+      // single click = side detail panel; double click = open the note in a new tab.
+      // the single action is delayed so a double-click can cancel it; suppressed right after a drag.
       g.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (this.dragged.get(g)) return; // ドラッグだった＝開かない / it was a drag, not a click
-        void this.openDetail(t.path);
+        if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
+        this.barClickTimer = window.setTimeout(() => {
+          this.barClickTimer = null;
+          void this.openDetail(t.path);
+        }, 250);
+      });
+      g.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
+        void this.app.workspace.openLinkText(t.path, "", "tab"); // 新規タブで開く / open in a new tab
       });
       svg.appendChild(g);
     });
