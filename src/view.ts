@@ -187,7 +187,9 @@ export class GanttView extends ItemView {
   // Obsidian がペイン/ウィンドウのリサイズ時に呼ぶフック。Fit のみ再描画（デバウンス）
   // Obsidian calls this on pane/window resize; re-fit in Fit mode only (debounced)
   onResize(): void {
-    if (this.zoom !== "Fit") return;
+    // ホイールズームで上書き中（customPpd）は再フィットしない＝再描画でスクロール位置を潰さない
+    // once a wheel zoom overrides Fit (customPpd set), don't re-fit: a rerender would reset scrollLeft
+    if (this.zoom !== "Fit" || this.customPpd != null) return;
     if (this.fitTimer != null) window.clearTimeout(this.fitTimer);
     this.fitTimer = window.setTimeout(() => this.rerender(), 80);
   }
@@ -1029,6 +1031,12 @@ export class GanttView extends ItemView {
             : (t.status && statusColor.get(t.status)) || FALLBACK_BAR;
         const rg = this.svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
         rg.appendChild(this.svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
+        const sdays = dayIndex(row.span.end) - dayIndex(row.span.start) + 1;
+        if (sw >= 22) {
+          const sdur = this.svgEl("text", { x: sx + sw / 2, y: i * ROW_H + ROW_H / 2, class: "ogantt-bar-duration" });
+          sdur.textContent = `${sdays}d`;
+          rg.appendChild(sdur);
+        }
         const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2, class: "ogantt-bar-label" });
         lbl.textContent = t.name;
         rg.appendChild(lbl);
@@ -1073,6 +1081,13 @@ export class GanttView extends ItemView {
         if (t.progress != null && t.progress > 0) {
           const pw = (w * Math.min(100, t.progress)) / 100;
           g.appendChild(this.svgEl("rect", { x, y, width: pw, height: h, rx: 4, class: "ogantt-bar-progress" }));
+        }
+        // バー内に期間を表示（例 3d）。狭くて収まらなければ省略 / show the span inside the bar (e.g. 3d); skip when too narrow
+        const days = dayIndex(endStr) - dayIndex(aStart) + 1;
+        if (w >= 22) {
+          const dur = this.svgEl("text", { x: x + w / 2, y: cyText(i), class: "ogantt-bar-duration" });
+          dur.textContent = `${days}d`;
+          g.appendChild(dur);
         }
         // ラベル（タスク名＋担当）/ label
         const label = this.svgEl("text", { x: x + w + 6, y: cyText(i), class: "ogantt-bar-label" });
