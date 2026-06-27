@@ -39,6 +39,7 @@ const HEAD_H = 40; // ヘッダー高さ / header height
 const BAR_PAD = 5; // バーの上下余白 / vertical padding inside a row
 const RESIZE_EDGE = 8; // バー端リサイズの当たり幅 / edge-resize hit width
 const MIN_PPD = 2; // Fit 時の最小 1 日幅（これ未満は横スクロール）/ minimum px/day in Fit mode
+const MAX_PPD = 48; // 連続ズーム（ホイール）の最大 1 日幅 / max px/day for smooth wheel zoom
 const FALLBACK_BAR = "#7c8db5"; // ステータス/担当者が未設定のときのバー色 / bar color when status/assignee is unset
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
@@ -91,6 +92,9 @@ export class GanttView extends ItemView {
   private rows: Row[] = [];
   private range: DateRange = { min: 0, max: 0 };
   private ppd = 16;
+  // ホイールによる連続ズームの上書き値（null = ズームモードの固定幅に従う）/ free wheel-zoom override (null = follow the zoom mode)
+  private customPpd: number | null = null;
+  private wheelRAF = 0; // ホイール連打を 1 フレーム 1 再描画に束ねる / coalesce wheel bursts to one rerender per frame
   private selectedPath: string | null = null;
   private folder = ""; // 表示対象フォルダ / scoped folder path
   private collapsed = new Set<string>(); // 折りたたみ中フォルダのキー / collapsed folder keys
@@ -199,6 +203,9 @@ export class GanttView extends ItemView {
     this.renderToolbar(root);
     this.optionsHost = root.createDiv({ cls: "ogantt-options" }); // 中身は rerender で差し替え / repopulated on rerender
     this.gridHost = root.createDiv({ cls: "ogantt-host" });
+    // Ctrl/⌘ + ホイールでカーソル位置を軸に連続ズーム（素のホイールは縦スクロールのまま）
+    // Ctrl/Cmd + wheel zooms smoothly, anchored under the cursor (plain wheel still scrolls)
+    this.registerDomEvent(this.gridHost, "wheel", (e: WheelEvent) => this.onWheelZoom(e));
     this.detailEl = root.createDiv({ cls: "ogantt-detail" });
     // 詳細パネルの外側（ビュー内のどこか）をクリックしたら閉じる。キャプチャ段階で閉じることで、
     // 行クリック等の「開く」ハンドラ（バブリング段階で実行）が後から開き直せる＝詳細の切り替えになる。
@@ -290,6 +297,8 @@ export class GanttView extends ItemView {
   // 1 日あたりピクセルを決定。Fit はペイン幅から算出（収まらなければ最小幅で横スクロール）
   // pixels-per-day; Fit derives it from the pane width (falls back to scrolling below MIN_PPD)
   private computePpd(): number {
+    // ホイールで連続ズーム中はその値を優先（モード/Fit より上）/ wheel zoom overrides the mode (and Fit)
+    if (this.customPpd != null) return Math.min(MAX_PPD, Math.max(MIN_PPD, this.customPpd));
     if (this.zoom !== "Fit") return pxPerDay(this.zoom);
     const totalDays = Math.max(1, this.range.max - this.range.min + 1);
     const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - scrollbarWidth();
@@ -300,6 +309,33 @@ export class GanttView extends ItemView {
     // only fall back to MIN_PPD (with horizontal scroll) when it can't fit.
     const ppd = avail / totalDays;
     return ppd >= MIN_PPD ? ppd : MIN_PPD;
+  }
+
+  // Ctrl/⌘ + ホイールで連続ズーム。カーソル下の日付を固定したまま ppd を増減する。
+  // smooth wheel zoom: scale ppd up/down while keeping the day under the cursor pinned in place.
+  private onWheelZoom(e: WheelEvent): void {
+    if (!(e.ctrlKey || e.metaKey)) return; // 修飾キー無しは通常スクロール / no modifier = normal scroll
+    const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+    if (!main) return;
+    e.preventDefault(); // ブラウザ/Obsidian のページズームを抑止 / suppress page zoom
+    const rect = main.getBoundingClientRect();
+    const tableW = this.tableWidth();
+    const screenX = e.clientX - rect.left; // ビューポート内のカーソル x / cursor x within the pane
+    // カーソル下の（小数）日付。タイムラインは固定列の右から始まる / fractional day under the cursor (timeline starts after the sticky table)
+    const dayUnder = this.range.min + (screenX + main.scrollLeft - tableW) / this.ppd;
+    // 指数スケールで等比ズーム＝どの倍率でも体感が一定 / exponential step keeps the feel constant at any scale
+    const next = Math.min(MAX_PPD, Math.max(MIN_PPD, this.ppd * Math.exp(-e.deltaY * 0.0015)));
+    if (next === this.ppd && this.customPpd != null) return; // 端で頭打ち / clamped at a limit
+    this.customPpd = next;
+    // 1 フレームにつき 1 再描画。最新のカーソル軸でスクロール位置を補正して固定する。
+    // one rerender per frame; after it, fix scrollLeft so dayUnder stays under the cursor.
+    if (this.wheelRAF) return;
+    this.wheelRAF = requestAnimationFrame(() => {
+      this.wheelRAF = 0;
+      this.rerender();
+      const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+      if (m) m.scrollLeft = tableW + (dayUnder - this.range.min) * this.ppd - screenX;
+    });
   }
 
   // ----- テーブル列 / table columns -----
@@ -448,6 +484,7 @@ export class GanttView extends ItemView {
       if (z === this.zoom) btn.addClass("is-active");
       btn.onclick = () => {
         this.zoom = z; // ppd は rerender 内の computePpd() が決める / ppd is set by computePpd() in rerender
+        this.customPpd = null; // モードを選んだらホイールズームの上書きを解除 / picking a mode drops the wheel-zoom override
         bar.querySelectorAll("button.is-active").forEach((b) => b.removeClass("is-active"));
         btn.addClass("is-active");
         void this.refresh();
