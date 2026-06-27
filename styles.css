@@ -26,6 +26,35 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
+/* 全体進捗（右端のバー＋％）/ overall project progress (right-side mini bar + %) */
+.ogantt-project-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.ogantt-project-progress-track {
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.ogantt-project-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--interactive-accent);
+  transition: width 0.08s linear;
+}
+.ogantt-project-progress-val {
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5em;
+  text-align: right;
+}
 /* 新規タスク追加ボタン（アイコン＋ラベル）/ add-task button (icon + label) */
 .ogantt-add {
   display: inline-flex;

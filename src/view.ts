@@ -131,6 +131,7 @@ export class GanttView extends ItemView {
   private gridHost!: HTMLElement;
   private detailEl!: HTMLElement;
   private undoBtn: HTMLButtonElement | null = null;
+  private projectProgressEl: HTMLElement | null = null; // ツールバー右の全体進捗表示 / overall-progress readout on the right of the toolbar
 
   constructor(leaf: WorkspaceLeaf, plugin: GanttPlugin) {
     super(leaf);
@@ -266,6 +267,7 @@ export class GanttView extends ItemView {
   rerender(): void {
     if (!this.gridHost) this.buildSkeleton();
     this.renderOptions(); // フィルタ/グループ/凡例を最新データで更新 / refresh options + legend
+    this.updateProjectProgress(); // 全体進捗を最新データで更新 / refresh overall progress from current data
     const view = this.processTasks(); // フィルタ＋グループ適用後 / after filter + group remap
     const compare = this.taskComparator();
     if (this.flat) {
@@ -520,6 +522,46 @@ export class GanttView extends ItemView {
 
     // 末尾の伸縮スペーサー（コントロールを左詰めに保つ）/ trailing spacer keeps controls left-packed
     bar.createDiv({ cls: "ogantt-spacer" });
+
+    // 全体進捗（期間で重み付けした平均。リサイズ中はライブ更新）/ overall progress (duration-weighted mean; updates live during resize)
+    const prog = bar.createDiv({ cls: "ogantt-project-progress" });
+    const track = prog.createDiv({ cls: "ogantt-project-progress-track" });
+    track.createDiv({ cls: "ogantt-project-progress-fill" });
+    prog.createSpan({ cls: "ogantt-project-progress-val" });
+    this.projectProgressEl = prog;
+    this.updateProjectProgress();
+  }
+
+  // タスクの期間（日数。日付が無ければ 0＝重み無し）/ a task's span in days (0 = no dates → no weight)
+  private taskDays(t: Task): number {
+    const s = anchorStart(t);
+    if (!s) return 0;
+    return Math.max(1, dayIndex(anchorEnd(t) ?? s) - dayIndex(s) + 1);
+  }
+
+  // 全体進捗＝Σ(日数×進捗)/Σ(日数)。override でドラッグ中タスクの日数を差し替え、ライブ計算する
+  // overall progress = Σ(days × progress) / Σ(days); override swaps the dragged task's days for a live figure
+  private computeProjectProgress(override?: { path: string; days: number }): number {
+    let weighted = 0;
+    let total = 0;
+    for (const t of this.tasks) {
+      const d = override && t.path === override.path ? override.days : this.taskDays(t);
+      if (d <= 0) continue;
+      total += d;
+      weighted += d * Math.min(100, Math.max(0, t.progress ?? 0));
+    }
+    return total > 0 ? weighted / total : 0;
+  }
+
+  private updateProjectProgress(override?: { path: string; days: number }): void {
+    const el = this.projectProgressEl;
+    if (!el) return;
+    const pct = Math.round(this.computeProjectProgress(override));
+    const fill = el.querySelector<HTMLElement>(".ogantt-project-progress-fill");
+    const val = el.querySelector<HTMLElement>(".ogantt-project-progress-val");
+    if (fill) fill.style.width = `${pct}%`;
+    if (val) val.textContent = `${pct}%`;
+    el.setAttr("aria-label", `${tr().fieldProgress}: ${pct}%`);
   }
 
   // ----- 表示オプション（グループ/色分け/フィルタ）＋凡例 / view options + legend -----
@@ -1449,6 +1491,10 @@ export class GanttView extends ItemView {
           handle.setAttribute("x", String(x0 + dx));
           handle.setAttribute("width", String(Math.max(this.ppd, w0 - dx)));
         }
+        // 全体進捗をライブ更新 / live-update overall progress
+        const nw = parseFloat(handle.getAttribute("width")!);
+        const days = Math.max(1, Math.round(nw / this.ppd));
+        this.updateProjectProgress({ path: task.path, days });
       };
       const onUp = (e: PointerEvent) => void (async () => {
         handle.releasePointerCapture(ev.pointerId);
@@ -1494,6 +1540,8 @@ export class GanttView extends ItemView {
           } else {
             handle.setAttribute("x", String(x0));
             handle.setAttribute("width", String(w0));
+            // ライブ更新した全体進捗を元へ戻す / revert the live-updated overall progress too
+            this.updateProjectProgress();
           }
         }
       })();
