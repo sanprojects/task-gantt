@@ -103,7 +103,8 @@ export interface Tick {
 // 上部の日付軸の目盛りを生成 / generate header ticks
 export function buildTicks(range: DateRange, zoom: ZoomMode, ppd: number): Tick[] {
   const ticks: Tick[] = [];
-  const wk = ["日", "月", "火", "水", "木", "金", "土"];
+  // 曜日略称（英語・固定）。ロケール非依存で軸に出るので日本語ハードコードを排除 / English weekday abbreviations (locale-independent axis labels)
+  const wk = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
   for (let day = range.min; day <= range.max; day++) {
     const d = new Date(day * MS_PER_DAY);
     const x = (day - range.min) * ppd;
