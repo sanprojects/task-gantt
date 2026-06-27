@@ -568,23 +568,24 @@
   background: var(--background-primary);
   border-left: 1px solid var(--background-modifier-border);
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
-  transform: translateX(100%);
-  /* 閉じている間は描画・操作から外す（影のにじみ・スクロール到達・フォーカスを防ぐ）。
-     可視性はスライドアウト完了後に切る＝アニメーションは残る。
-     while closed, drop it from rendering/interaction (no shadow bleed at the edge,
-     can't scroll/focus into it); flip visibility only after the slide-out finishes. */
-  visibility: hidden;
-  pointer-events: none;
-  transition: transform 0.18s ease, visibility 0s linear 0.18s;
   overflow-y: auto;
   z-index: 5;
   padding: 12px 14px 12px 18px;
+  /* 閉じている間は完全に display:none。translate でビュー外に置くと、変形後の位置が
+     横スクロール領域を広げて「右にスクロールするとパネルが出てくる」バグになる（祖先の
+     overflow:hidden が効かない場合）。display:none ならレイアウト・スクロール・描画から外れる。
+     when closed, fully display:none. parking it off-canvas via translate still extends the
+     horizontal scroll region (the panel becomes reachable by scrolling right) when an ancestor's
+     overflow:hidden doesn't take; display:none removes it from layout/scroll/paint entirely. */
+  display: none;
 }
 .ogantt-detail.is-open {
-  transform: translateX(0);
-  visibility: visible;
-  pointer-events: auto;
-  transition: transform 0.18s ease;
+  display: block;
+  animation: ogantt-detail-in 0.18s ease; /* 開くときだけスライドイン / slide-in on open only */
+}
+@keyframes ogantt-detail-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 /* 左端の幅リサイズハンドル / left-edge resize handle */
 .ogantt-detail-resizer {
