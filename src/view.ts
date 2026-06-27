@@ -1,4 +1,4 @@
-import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
+import { ItemView, Menu, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import { WheelGestureRouter } from "./wheelGesture";
@@ -46,6 +46,7 @@ import {
   MAX_INDENT_DEPTH,
 } from "./viewConstants";
 import { hashColor, tagColor, folderColor, paintTagChip } from "./color";
+import { ConfirmModal } from "./confirmModal";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -2457,37 +2458,5 @@ export class GanttView extends ItemView {
     const last = pts[pts.length - 1];
     d += ` L ${last[0]} ${last[1]}`;
     return d;
-  }
-}
-
-// 削除などの確認ダイアログ（破壊的操作の前に確認）/ a small confirm dialog for destructive actions
-interface ConfirmOpts {
-  title: string;
-  body: string;
-  sub?: string;
-  confirmText: string;
-  cancelText: string;
-  onConfirm: () => void;
-}
-class ConfirmModal extends Modal {
-  constructor(app: App, private opts: ConfirmOpts) {
-    super(app);
-  }
-  onOpen(): void {
-    this.titleEl.setText(this.opts.title);
-    this.contentEl.createEl("p", { text: this.opts.body });
-    if (this.opts.sub) this.contentEl.createEl("p", { cls: "ogantt-confirm-sub", text: this.opts.sub });
-    const btns = this.contentEl.createDiv({ cls: "ogantt-confirm-btns" });
-    const cancel = btns.createEl("button", { text: this.opts.cancelText });
-    cancel.onclick = () => this.close();
-    const ok = btns.createEl("button", { cls: "mod-warning", text: this.opts.confirmText });
-    ok.onclick = () => {
-      this.close();
-      this.opts.onConfirm();
-    };
-    window.setTimeout(() => ok.focus(), 0); // Enter で即確定 / Enter confirms
-  }
-  onClose(): void {
-    this.contentEl.empty();
   }
 }
