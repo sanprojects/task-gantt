@@ -1451,6 +1451,14 @@ export class GanttView extends ItemView {
     }
   }
 
+  // ドラッグ中にバー内ラベル（期間＋名前）を丸ごと再描画。静的描画と同じ drawBarLabel を使うのでズレない
+  // redraw the whole in-bar label (duration + name) while dragging; reuses drawBarLabel so it matches the static render exactly
+  private liveBarLabel(g: SVGGElement, rect: SVGElement, x: number, w: number, days: number, name: string): void {
+    g.querySelectorAll(".ogantt-bar-intext").forEach((el) => el.remove());
+    const cy = parseFloat(rect.getAttribute("y")!) + parseFloat(rect.getAttribute("height")!) / 2;
+    this.drawBarLabel(g, x, w, cy, days, name);
+  }
+
   // バー/菱形のドラッグで日付を書き戻す / drag a bar or diamond to reschedule
   private attachDrag(g: SVGGElement, handle: SVGElement, task: Task): void {
     const EDGE = RESIZE_EDGE;
@@ -1491,9 +1499,11 @@ export class GanttView extends ItemView {
           handle.setAttribute("x", String(x0 + dx));
           handle.setAttribute("width", String(Math.max(this.ppd, w0 - dx)));
         }
-        // 全体進捗をライブ更新 / live-update overall progress
+        // バー内ラベル（期間＋名前）と全体進捗をライブ更新 / live-update the in-bar label (duration + name) and overall progress
+        const nx = parseFloat(handle.getAttribute("x")!);
         const nw = parseFloat(handle.getAttribute("width")!);
         const days = Math.max(1, Math.round(nw / this.ppd));
+        this.liveBarLabel(g, handle, nx, nw, days, task.name);
         this.updateProjectProgress({ path: task.path, days });
       };
       const onUp = (e: PointerEvent) => void (async () => {
@@ -1540,7 +1550,8 @@ export class GanttView extends ItemView {
           } else {
             handle.setAttribute("x", String(x0));
             handle.setAttribute("width", String(w0));
-            // ライブ更新した全体進捗を元へ戻す / revert the live-updated overall progress too
+            // ライブ更新したバー内ラベルと全体進捗を元へ戻す / revert the live-updated in-bar label and overall progress too
+            this.liveBarLabel(g, handle, x0, w0, Math.max(1, Math.round(w0 / this.ppd)), task.name);
             this.updateProjectProgress();
           }
         }
