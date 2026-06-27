@@ -312,7 +312,7 @@
   font-size: 0.85em;
 }
 .ogantt-tr.is-group {
-  background: var(--background-secondary);
+  background: color-mix(in srgb, var(--background-secondary) 50%, transparent);
   cursor: pointer;
   user-select: none;
 }
