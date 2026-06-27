@@ -240,6 +240,13 @@
   min-height: 0;
   overflow: auto;
 }
+/* 横スクロールバーは隠す（横移動はスワイプ/ズームで行う）。縦バーは残す。スクロール自体は機能したまま。
+   hide the horizontal scrollbar (we pan horizontally via swipe/zoom); keep the vertical one.
+   scrolling still works — only the horizontal scrollbar UI is hidden. */
+.ogantt-main::-webkit-scrollbar:horizontal {
+  height: 0;
+  display: none;
+}
 .ogantt-grid {
   display: grid;
   /* columns/rows are set inline from JS */
