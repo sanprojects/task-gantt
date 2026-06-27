@@ -199,7 +199,12 @@ export class GanttView extends ItemView {
         if (!this.detailEl?.hasClass("is-open")) return;
         const el = ev.target as Element;
         if (el.closest(".ogantt-detail")) return;
+        // バー／タスク行は自前で開閉をトグルするので、ここでは閉じない（さもないとトグルが常に開き直す）
+        // bars & task rows toggle the panel themselves, so don't auto-close on those (else toggle always re-opens)
+        if (el.closest(".ogantt-bar-g, .ogantt-tr")) return;
         this.detailEl.removeClass("is-open");
+        this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
+        this.selectedPath = null;
       },
       true
     );
@@ -882,7 +887,7 @@ export class GanttView extends ItemView {
         // single click = detail panel; double click = open the note in a new tab (same as the bars)
         tr.addEventListener("click", () => {
           if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
-          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; void this.openDetail(t.path); }, 250);
+          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; this.toggleDetail(t.path); }, 250);
         });
         tr.addEventListener("dblclick", () => {
           if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
@@ -970,7 +975,7 @@ export class GanttView extends ItemView {
         rg.addEventListener("click", (ev) => {
           ev.stopPropagation();
           if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
-          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; void this.openDetail(t.path); }, 250);
+          this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; this.toggleDetail(t.path); }, 250);
         });
         rg.addEventListener("dblclick", (ev) => {
           ev.stopPropagation();
@@ -1058,7 +1063,7 @@ export class GanttView extends ItemView {
         if (this.barClickTimer != null) window.clearTimeout(this.barClickTimer);
         this.barClickTimer = window.setTimeout(() => {
           this.barClickTimer = null;
-          void this.openDetail(t.path);
+          this.toggleDetail(t.path);
         }, 250);
       });
       g.addEventListener("dblclick", (ev) => {
@@ -1513,6 +1518,18 @@ export class GanttView extends ItemView {
     const live = this.tasks.find((x) => x.path === srcPath);
     if (live && !live.tags.includes(tag)) live.tags.push(tag);
     this.rerender();
+  }
+
+  // 同じタスクをもう一度クリック＝閉じる、それ以外＝開く（横の詳細パネルのトグル）
+  // click the same task again = close; otherwise open (toggle the side detail panel)
+  private toggleDetail(path: string): void {
+    if (this.detailEl?.hasClass("is-open") && this.selectedPath === path) {
+      this.detailEl.removeClass("is-open");
+      this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
+      this.selectedPath = null;
+      return;
+    }
+    void this.openDetail(path);
   }
 
   // ----- 詳細パネル（編集モード）/ editable detail slide-over -----
