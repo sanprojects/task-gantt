@@ -987,7 +987,7 @@ export class GanttView extends ItemView {
             : (t.status && statusColor.get(t.status)) || FALLBACK_BAR;
         const rg = this.svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
         rg.appendChild(this.svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
-        const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2 + 4, class: "ogantt-bar-label" });
+        const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2, class: "ogantt-bar-label" });
         lbl.textContent = t.name;
         rg.appendChild(lbl);
         rg.addEventListener("click", (ev) => {
@@ -1093,7 +1093,9 @@ export class GanttView extends ItemView {
     });
 
     function cyText(i: number): number {
-      return i * ROW_H + ROW_H / 2 + 4;
+      // dominant-baseline:middle が y を中心に合わせるので行の中心ちょうどを返す（旧 +4 はバー中心より下にずれていた）
+      // the label CSS centers text on its y (dominant-baseline:middle), so return the exact row center; the old +4 sat below the bar's center
+      return i * ROW_H + ROW_H / 2;
     }
   }
 
