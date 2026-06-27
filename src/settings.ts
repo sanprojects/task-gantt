@@ -73,6 +73,7 @@ export interface GanttSettings {
     leads: string[]; // 有効なリードタイムID（1w/1d/1h/10m/0）/ enabled lead ids
     sent: Record<string, number>; // 送信済みキー→送信時刻（二重通知防止）/ sent keys → timestamp (dedupe)
   };
+  sidebarLeafId?: string; // 右サイドバーの再利用リーフID（再読込またぎで同じ枠を使う）/ persisted right-sidebar leaf id (reused across reloads)
   // フロントマターのキー名（プロジェクトに合わせて変更可）/ frontmatter key names
   keys: {
     start: string;

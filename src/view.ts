@@ -1920,9 +1920,22 @@ export class GanttView extends ItemView {
   private async openTaskInSidebar(path: string): Promise<void> {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
-    if (this.noteLeaf && !this.isLeafAttached(this.noteLeaf)) this.noteLeaf = null; // 閉じられていたら作り直す / recreate if the user closed it
+    // in-memory ref gone? try to recover by the persisted leaf id so the same pane survives reloads
+    if (this.noteLeaf && !this.isLeafAttached(this.noteLeaf)) this.noteLeaf = null;
+    if (!this.noteLeaf && this.plugin.settings.sidebarLeafId) {
+      const savedId = this.plugin.settings.sidebarLeafId;
+      this.app.workspace.iterateAllLeaves((l) => {
+        if ((l as any).id === savedId) this.noteLeaf = l;
+      });
+    }
     const leaf = this.noteLeaf ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
+    // persist the leaf id so the next reload can find the same pane
+    const leafId = (leaf as any).id as string | undefined;
+    if (leafId && leafId !== this.plugin.settings.sidebarLeafId) {
+      this.plugin.settings.sidebarLeafId = leafId;
+      void this.plugin.saveSettings();
+    }
     this.noteLeaf = leaf;
     await leaf.openFile(file, { active: false }); // フォーカスは Gantt に残す / keep focus on the Gantt
     void this.app.workspace.revealLeaf(leaf); // サイドバーが畳まれていたら開く / uncollapse the sidebar if it's collapsed
