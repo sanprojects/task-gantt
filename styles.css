@@ -22,11 +22,9 @@
 .ogantt-spacer {
   flex: 1;
 }
-/* アクティブなモードボタン：控えめな塗り＋太字（テーマのアクセント色で主張しない）/ active mode button: subtle fill + bold, no loud accent */
 .ogantt-toolbar button.is-active {
-  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
-  color: var(--text-normal);
-  font-weight: 600;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 /* 新規タスク追加ボタン（アイコン＋ラベル）/ add-task button (icon + label) */
 .ogantt-add {
@@ -471,14 +469,14 @@
 .ogantt-milestone:active {
   cursor: grabbing;
 }
-/* フォルダのまとめバー：構造を示す控えめなグレー（ステータス色と競合しない）/ group (folder) summary bar: muted neutral so it doesn't fight the status palette */
+/* フォルダのまとめバー / group (folder) summary bar */
 .ogantt-group-bar {
-  fill: var(--text-muted);
-  opacity: 0.35;
+  fill: var(--text-accent);
+  opacity: 0.85;
 }
 .ogantt-group-cap {
-  fill: var(--text-muted);
-  opacity: 0.35;
+  fill: var(--text-accent);
+  opacity: 0.85;
 }
 /* バー内ラベル（左寄せ：期間＋名前）。期間は太字、名前は通常 / in-bar label (left-aligned: duration + name); duration bold, name regular */
 .ogantt-bar-intext {
@@ -488,6 +486,10 @@
   dominant-baseline: middle;
   pointer-events: none;
   opacity: 0.92;
+  /* 暗いアウトラインで明るいバー上でも読みやすく / dark outline keeps it legible on light bars */
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 2px;
 }
 .ogantt-bar-intext.is-dur {
   font-weight: 600;
