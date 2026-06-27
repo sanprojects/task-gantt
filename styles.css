@@ -125,6 +125,10 @@
   flex: none;
   vertical-align: middle;
 }
+/* 未設定ステータスのプレースホルダ（クリック可能な空セルの目印）/ placeholder for an unset, still-clickable status cell */
+.ogantt-status-empty {
+  color: var(--text-faint);
+}
 /* オプションのアイコン（意味はツールチップで補助）/ option icon (meaning via tooltip) */
 .ogantt-opt-ico {
   display: inline-flex;

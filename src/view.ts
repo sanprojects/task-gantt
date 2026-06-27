@@ -1921,7 +1921,11 @@ export class GanttView extends ItemView {
           const dot = td.createSpan({ cls: "ogantt-status-dot" });
           dot.style.background = s.color;
           td.createSpan({ text: s.label });
+        } else {
+          // 未設定でもクリックできるよう薄いプレースホルダを出す / faint placeholder so empty cells stay clickable
+          td.createSpan({ cls: "ogantt-status-empty", text: "—" });
         }
+        this.makeStatusCell(td, t);
         break;
       }
       case "tags": {
@@ -1950,6 +1954,36 @@ export class GanttView extends ItemView {
       e.stopPropagation();
       this.openCellDatePicker(cell, t, which);
     });
+  }
+
+  // テーブルのステータスセルをシングルクリックで直接編集 / make a table status cell editable via single click
+  private makeStatusCell(cell: HTMLElement, t: Task): void {
+    cell.addClass("ogantt-td-editable");
+    cell.setAttr("aria-label", tr().fieldStatus);
+    // セルのクリックは詳細を開かずステータス選択に専念 / a click here picks a status, not opens detail
+    cell.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.openStatusMenu(cell, t);
+    });
+  }
+
+  // セル直下にステータス選択メニューを開いて即書き込み / pop a status picker under the cell and write through
+  private openStatusMenu(anchor: HTMLElement, t: Task): void {
+    const k = this.plugin.settings.keys;
+    const choose = async (id: string | undefined): Promise<void> => {
+      if ((t.status ?? "") === (id ?? "")) return; // 変更なし / no change
+      await this.pushUndo(`${t.name} — ${tr().fieldStatus}`); // Ctrl+Z で取り消し可 / undoable
+      await writeField(this.app, t.path, k.status, id);
+      await this.refresh();
+    };
+    const m = new Menu();
+    // 未設定（クリア）/ unset (clear)
+    m.addItem((i) => i.setTitle("—").setChecked(t.status == null).onClick(() => void choose(undefined)));
+    for (const s of this.plugin.settings.statuses) {
+      m.addItem((i) => i.setTitle(s.label).setChecked(s.id === t.status).onClick(() => void choose(s.id)));
+    }
+    const r = anchor.getBoundingClientRect();
+    m.showAtPosition({ x: r.left, y: r.bottom + 4 });
   }
 
   // テーブルのセルから範囲カレンダーを開いて日付を直接編集 / open the range calendar from a table cell
