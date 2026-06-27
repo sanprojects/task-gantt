@@ -119,9 +119,6 @@ export class GanttView extends ItemView {
   // バーがドラッグされたか（ドラッグ直後のクリック抑止用）/ whether a bar was dragged (to suppress the trailing click)
   private dragged = new WeakMap<SVGGElement, boolean>();
 
-  // シングル/ダブルクリック判別タイマー（ダブルが来たらシングルを取消）/ single-vs-double click timer (double cancels the pending single)
-  private barClickTimer: number | null = null;
-
   // Fit モードでペイン幅に追従するための再描画タイマー / debounce timer to re-fit in Fit mode
   private fitTimer: number | null = null;
 
@@ -245,10 +242,6 @@ export class GanttView extends ItemView {
     if (this.fitTimer != null) {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
-    }
-    if (this.barClickTimer != null) {
-      window.clearTimeout(this.barClickTimer);
-      this.barClickTimer = null;
     }
     activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
   }
@@ -940,7 +933,7 @@ export class GanttView extends ItemView {
         }
         // シングルクリック＝詳細パネル、ダブルクリック＝ノートを新規タブで（バーと同じ挙動）
         // single click = detail panel; double click = open the note in a new tab (same as the bars)
-        tr.addEventListener("click", () => this.activateTask(t.path));
+        tr.addEventListener("click", (ev) => this.activateTask(t.path, ev));
         tr.addEventListener("dblclick", () => this.openTaskNote(t.path));
         if (this.groupBy === "folder") {
           this.makeDraggableTask(tr, t.path);
@@ -1021,7 +1014,7 @@ export class GanttView extends ItemView {
         const lbl = this.svgEl("text", { x: sx + sw + 6, y: i * ROW_H + ROW_H / 2, class: "ogantt-bar-label" });
         lbl.textContent = t.name;
         rg.appendChild(lbl);
-        rg.addEventListener("click", (ev) => { ev.stopPropagation(); this.activateTask(t.path); });
+        rg.addEventListener("click", (ev) => { ev.stopPropagation(); this.activateTask(t.path, ev); });
         rg.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.openTaskNote(t.path); });
         svg.appendChild(rg);
         return;
@@ -1099,7 +1092,7 @@ export class GanttView extends ItemView {
       g.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (this.dragged.get(g)) return; // ドラッグだった＝開かない / it was a drag, not a click
-        this.activateTask(t.path);
+        this.activateTask(t.path, ev);
       });
       g.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
@@ -1568,23 +1561,18 @@ export class GanttView extends ItemView {
     void this.openDetail(path);
   }
 
-  // バー／行のシングルクリック。閉じている（or 別タスク）なら即開く＝遅延なし。
-  // 既に同じタスクで開いているときだけ、「もう一度クリックで閉じる」と「ダブルクリック＝ノート」を
-  // 見分けるため少し待つ（この分岐は応答性に響かない）。
-  // single click on a bar/row: open immediately when closed (or a different task) — no lag.
-  // only when it's already open for this same task do we wait briefly, to tell "click again to close"
-  // from a double-click (this branch isn't latency-sensitive).
-  private activateTask(path: string): void {
-    if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
-    const openSame = this.detailEl?.hasClass("is-open") && this.selectedPath === path;
-    if (!openSame) { void this.openDetail(path); return; }
-    this.barClickTimer = window.setTimeout(() => { this.barClickTimer = null; this.toggleDetail(path); }, 250);
+  // バー／行のシングルクリック＝詳細パネルをトグル（開く/閉じる）。タイマーなし＝開閉とも即反応。
+  // ダブルクリックの2回目以降（ev.detail > 1）は無視＝二重トグルでチラつかせない。ノートは dblclick 側で開く。
+  // single click on a bar/row = toggle the detail panel (open/close), instantly — no timer either way.
+  // ignore the 2nd+ click of a double (ev.detail > 1) so it doesn't double-toggle/flicker; the dblclick
+  // handler opens the note.
+  private activateTask(path: string, ev: MouseEvent): void {
+    if (ev.detail > 1) return;
+    this.toggleDetail(path);
   }
 
-  // ダブルクリック＝ノートを新規タブで開く（保留中のシングル動作は取消）
-  // double click = open the note in a new tab (cancel any pending single-click action)
+  // ダブルクリック＝ノートを新規タブで開く / double click = open the note in a new tab
   private openTaskNote(path: string): void {
-    if (this.barClickTimer != null) { window.clearTimeout(this.barClickTimer); this.barClickTimer = null; }
     void this.app.workspace.openLinkText(path, "", "tab");
   }
 
