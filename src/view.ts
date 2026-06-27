@@ -97,6 +97,8 @@ export class GanttView extends ItemView {
   private wheelRAF = 0; // ホイール連打を 1 フレーム 1 再描画に束ねる / coalesce wheel bursts to one rerender per frame
   private wheelAxis: "x" | "y" | null = null; // 現ジェスチャの固定軸（斜め入力で縦横が同時に効かないように）/ locked axis for the current gesture (so diagonal input can't do both)
   private wheelAxisTime = 0; // 直近ホイールの時刻。途切れたら軸ロックを解除 / last wheel timestamp; a pause releases the lock
+  private measureCtx: CanvasRenderingContext2D | null = null; // バー内ラベルの幅測定用キャンバス（DOM 非依存・リフロー無し）/ canvas for measuring in-bar label width (no DOM/reflow)
+  private measureFamily = ""; // 測定に使うフォントファミリ（初回に取得しキャッシュ）/ font family for measurement, cached on first use
   private selectedPath: string | null = null;
   private folder = ""; // 表示対象フォルダ / scoped folder path
   private collapsed = new Set<string>(); // 折りたたみ中フォルダのキー / collapsed folder keys
@@ -1046,12 +1048,7 @@ export class GanttView extends ItemView {
         const rg = this.svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
         rg.appendChild(this.svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
         const sdays = dayIndex(row.span.end) - dayIndex(row.span.start) + 1;
-        if (sw >= 22) {
-          const sdur = this.svgEl("text", { x: sx + sw / 2, y: i * ROW_H + ROW_H / 2, class: "ogantt-bar-duration" });
-          sdur.textContent = `${sdays}d`;
-          rg.appendChild(sdur);
-        }
-        // 名前は左の固定列に常時あるのでバー脇の重複ラベルは出さない / name is always in the sticky left column, skip the duplicate beside the bar
+        this.drawBarLabel(rg, sx, sw, i * ROW_H + ROW_H / 2, sdays, t.name);
         rg.addEventListener("click", (ev) => { ev.stopPropagation(); this.activateTask(t.path, ev); });
         rg.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.openTaskNote(t.path); });
         svg.appendChild(rg);
@@ -1094,14 +1091,9 @@ export class GanttView extends ItemView {
           const pw = (w * Math.min(100, t.progress)) / 100;
           g.appendChild(this.svgEl("rect", { x, y, width: pw, height: h, rx: 4, class: "ogantt-bar-progress" }));
         }
-        // バー内に期間を表示（例 3d）。狭くて収まらなければ省略 / show the span inside the bar (e.g. 3d); skip when too narrow
+        // バー内ラベル：左から「期間 名前」。名前はバー幅に収まる分だけ … で省略 / in-bar label "<days>d  <name>", name truncated with … to fit
         const days = dayIndex(endStr) - dayIndex(aStart) + 1;
-        if (w >= 22) {
-          const dur = this.svgEl("text", { x: x + w / 2, y: cyText(i), class: "ogantt-bar-duration" });
-          dur.textContent = `${days}d`;
-          g.appendChild(dur);
-        }
-        // 名前は左の固定列に常時あるのでバー脇の重複ラベルは出さない / name is always in the sticky left column, skip the duplicate beside the bar
+        this.drawBarLabel(g, x, w, cyText(i), days, t.name);
         this.attachDrag(g, rect, t);
         // 端ホバーで ↔ カーソル、中央は掴むカーソル / ew-resize near edges, grab in the middle
         rect.addEventListener("mousemove", (e: MouseEvent) => {
@@ -2251,6 +2243,46 @@ export class GanttView extends ItemView {
     const el = activeDocument.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
     return el;
+  }
+
+  // バー内テキストの幅をキャンバスで測定（DOM 非依存＝未アタッチでも測れ、リフローも起こさない）
+  // measure in-bar text width via canvas (works before attach, triggers no reflow)
+  private textWidth(s: string, weight: number): number {
+    if (!this.measureCtx) this.measureCtx = activeDocument.createElement("canvas").getContext("2d");
+    if (!this.measureFamily) this.measureFamily = getComputedStyle(this.gridHost).fontFamily || "sans-serif";
+    const ctx = this.measureCtx;
+    if (!ctx) return s.length * 6; // キャンバス不可なら粗い見積り / rough estimate if canvas is unavailable
+    ctx.font = `${weight} 10px ${this.measureFamily}`;
+    return ctx.measureText(s).width;
+  }
+
+  // 最大幅に収まるよう名前の末尾を … で省略（二分探索で測定回数を抑える）/ truncate the name tail with … to fit maxWidth
+  private fitName(name: string, maxWidth: number): string {
+    if (this.textWidth(name, 400) <= maxWidth) return name;
+    let lo = 0, hi = name.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (this.textWidth(name.slice(0, mid) + "…", 400) <= maxWidth) lo = mid; else hi = mid - 1;
+    }
+    return lo > 0 ? name.slice(0, lo) + "…" : "";
+  }
+
+  // バー内ラベルを描画：左寄せで「期間  名前(…)」。バーが狭ければ名前を省略／非表示 / draw the in-bar label: "<days>d  <name(…)>", left-aligned
+  private drawBarLabel(parent: SVGElement, x: number, w: number, cy: number, days: number, name: string): void {
+    if (w < 22) return; // 期間すら入らない極小バーは無ラベル / too small even for the duration
+    const PAD = 6, GAP = 6;
+    const durStr = `${days}d`;
+    const durW = this.textWidth(durStr, 600);
+    const dur = this.svgEl("text", { x: x + PAD, y: cy, class: "ogantt-bar-intext is-dur" });
+    dur.textContent = durStr;
+    parent.appendChild(dur);
+    const avail = w - PAD - durW - GAP - PAD; // 名前に使える残り幅 / width left for the name
+    if (avail < 16) return; // 名前を出すには狭すぎ＝期間のみ / too narrow for a name, show duration only
+    const shown = this.fitName(name, avail);
+    if (!shown) return;
+    const nm = this.svgEl("text", { x: x + PAD + durW + GAP, y: cy, class: "ogantt-bar-intext" });
+    nm.textContent = shown;
+    parent.appendChild(nm);
   }
 
   // 直角の折れ線を軽く丸める / build an SVG path from points, rounding the right-angle elbows

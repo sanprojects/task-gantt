@@ -480,21 +480,17 @@
   fill: var(--text-muted);
   opacity: 0.35;
 }
-.ogantt-bar-label {
-  font-size: 11px;
-  fill: var(--text-muted);
-  dominant-baseline: middle;
-  pointer-events: none;
-}
-/* バー内に重ねる期間ラベル（例 3d）/ duration label overlaid inside the bar (e.g. 3d) */
-.ogantt-bar-duration {
+/* バー内ラベル（左寄せ：期間＋名前）。期間は太字、名前は通常 / in-bar label (left-aligned: duration + name); duration bold, name regular */
+.ogantt-bar-intext {
   font-size: 10px;
-  font-weight: 600;
   fill: #fff;
-  text-anchor: middle;
+  text-anchor: start;
   dominant-baseline: middle;
   pointer-events: none;
   opacity: 0.92;
+}
+.ogantt-bar-intext.is-dur {
+  font-weight: 600;
 }
 .ogantt-dep {
   fill: none;
