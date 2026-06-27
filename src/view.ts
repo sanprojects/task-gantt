@@ -281,7 +281,12 @@ export class GanttView extends ItemView {
     const totalDays = Math.max(1, this.range.max - this.range.min + 1);
     const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - FIT_SCROLLBAR_PAD;
     if (avail <= 0) return pxPerDay("Week"); // まだレイアウト前 / not laid out yet
-    return Math.max(MIN_PPD, Math.floor(avail / totalDays));
+    // 端数で割る（floor しない）＝ totalDays*ppd が avail にぴったり一致し、右端に隙間が出ない。
+    // MIN_PPD を下回るときだけ最小幅にして横スクロールへ。
+    // use a fractional px/day (no floor) so totalDays*ppd fills avail exactly — no gap on the right.
+    // only fall back to MIN_PPD (with horizontal scroll) when it can't fit.
+    const ppd = avail / totalDays;
+    return ppd >= MIN_PPD ? ppd : MIN_PPD;
   }
 
   // ----- テーブル列 / table columns -----
