@@ -368,27 +368,6 @@ export async function writeField(
   });
 }
 
-// 本文（フロントマターを除く）を取得 / read the body (without frontmatter)
-export async function readBody(app: App, path: string): Promise<string> {
-  const file = app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) return "";
-  const text = await app.vault.read(file);
-  // 先頭の --- ... --- を除去 / strip leading frontmatter block
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
-}
-
-// 本文を書き戻す（フロントマターは保持）/ write back the body (keeping frontmatter)
-export async function writeBody(app: App, path: string, body: string): Promise<void> {
-  const file = app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) return;
-  await app.vault.process(file, (text) => {
-    const m = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-    const fm = m ? m[0].replace(/\n*$/, "\n") : "";
-    const trimmed = body.replace(/\s+$/, "");
-    return (fm ? fm + "\n" : "") + (trimmed ? trimmed + "\n" : "");
-  });
-}
-
 // 新規タスク（空フロントマター .md）をフォルダ直下に作成。名前が衝突したら連番を付ける
 // create a new task (.md with empty frontmatter) in the folder; de-duplicate the name with a counter
 export async function createTask(app: App, folderPath: string, baseName: string): Promise<TFile | null> {
@@ -439,18 +418,6 @@ export async function addTag(app: App, path: string, tag: string): Promise<boole
     }
   });
   return changed;
-}
-
-// タグを削除（フロントマター tags のみ・本文 #tag は対象外）/ remove a tag from frontmatter `tags` (inline #tags are not touched)
-export async function removeTag(app: App, path: string, tag: string): Promise<void> {
-  const file = app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) return;
-  const clean = tag.replace(/^#/, "").trim();
-  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-    const cur = normalizeTags(fm.tags).filter((x) => x !== clean);
-    if (cur.length) fm.tags = cur;
-    else delete fm.tags;
-  });
 }
 
 // 指定タスクのサブツリー（自分＋子孫）のパス一覧 / paths of a task's subtree (self + descendants)

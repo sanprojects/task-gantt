@@ -33,26 +33,6 @@ export function formatDate(iso: string | undefined, fmt: DateFormat): string {
   }
 }
 
-// 表示フォーマットの入力を ISO へ。"" = クリア、null = 不正 / parse a formatted input into ISO. "" = clear, null = invalid
-export function parseDate(text: string, fmt: DateFormat): string | null {
-  const t = text.trim();
-  if (t === "") return "";
-  const n = t.split(/[^0-9]+/).filter(Boolean);
-  if (n.length !== 3) return null;
-  let y: string, mo: string, d: string;
-  if (fmt === "DD/MM/YYYY") [d, mo, y] = n;
-  else if (fmt === "MM/DD/YYYY") [mo, d, y] = n;
-  else [y, mo, d] = n;
-  if (y.length !== 4) return null; // 年は4桁必須 / require a 4-digit year
-  const mi = +mo, di = +d;
-  if (mi < 1 || mi > 12 || di < 1 || di > 31) return null;
-  const iso = `${y}-${String(mi).padStart(2, "0")}-${String(di).padStart(2, "0")}`;
-  // 実在日チェック（例 2026-02-30 を弾く）/ reject impossible dates
-  const dt = new Date(`${iso}T00:00:00Z`);
-  if (isNaN(dt.getTime()) || dt.getUTCMonth() + 1 !== mi || dt.getUTCDate() !== di) return null;
-  return iso;
-}
-
 // ズームごとの 1 日あたりピクセル / pixels per day per zoom
 // Fit はコンテナ幅から動的に算出するため、ここでは Week 相当のフォールバック
 // Fit is computed from the container width elsewhere; here it falls back to the Week scale
