@@ -1,10 +1,8 @@
-// 表示言語の判定と文言テーブル / display-language detection + string table
-// Obsidian の表示言語（moment ロケール）に合わせて対応言語を選ぶ。未対応は英語にフォールバック。
+// display-language detection + string table
 // Pick a supported language from Obsidian's UI language (moment locale); fall back to English.
 
 import { moment } from "obsidian";
 
-// 対応言語：日本語・英語・中国語（簡体/繁体）・韓国語・フランス語・スペイン語・ロシア語
 // supported: Japanese, English, Chinese (Simplified/Traditional), Korean, French, Spanish, Russian
 type Lang = "ja" | "en" | "zh" | "zh-tw" | "ko" | "fr" | "es" | "ru";
 
@@ -13,7 +11,7 @@ function detectLang(): Lang {
     const l = moment.locale().toLowerCase();
     if (l.startsWith("ja")) return "ja";
     if (l.startsWith("ko")) return "ko";
-    // 中国語は繁体（tw/hk/hant）と簡体を区別 / Chinese: distinguish Traditional from Simplified
+    // Chinese: distinguish Traditional from Simplified
     if (l.startsWith("zh")) return l.startsWith("zh-tw") || l.startsWith("zh-hk") || l.includes("hant") ? "zh-tw" : "zh";
     if (l.startsWith("fr")) return "fr";
     if (l.startsWith("es")) return "es";
@@ -24,21 +22,21 @@ function detectLang(): Lang {
   }
 }
 
-// モジュール読込時に一度だけ判定（言語変更の反映は再読み込み時）/ resolved once at load
+// resolved once at load
 export const lang: Lang = detectLang();
 
-// UI 文言（パラメータ付きは関数）/ UI strings (functions where parameterized)
+// UI strings (functions where parameterized)
 interface Strings {
-  // 列見出し / column headers
+  // column headers
   colTask: string;
   colStart: string;
   colDue: string;
-  // ツールバー / toolbar
+  // toolbar
   undoAria: string;
   reloadAria: string;
   newTaskAria: string;
   today: string;
-  // 表示オプション / view options
+  // view options
   optGroupLabel: string;
   optGroupFolder: string;
   optColorLabel: string;
@@ -48,7 +46,7 @@ interface Strings {
   optRollup: string;
   filterAll: string;
   noneLabel: string;
-  // 取り消し / undo
+  // undo
   nothingToUndo: string;
   undone: (label: string) => string;
   undoReschedule: (name: string) => string;
@@ -59,18 +57,18 @@ interface Strings {
   cycleBlocked: string;
   undoAddDep: (type: string) => string;
   undoRemoveDep: (type: string) => string;
-  // 依存 / dependencies
+  // dependencies
   sfUnsupported: string;
   depTooltip: (type: string) => string;
-  // 日付入力 / date entry
+  // date entry
   invalidDate: string;
   pickDate: string;
   fieldDates: string;
   fieldTime: string;
   clearDate: string;
-  // 空表示 / empty state
+  // empty state
   emptyMessage: (folder: string) => string;
-  // 詳細パネル / detail panel
+  // detail panel
   openAsNote: string;
   fieldStart: string;
   fieldDue: string;
@@ -81,11 +79,11 @@ interface Strings {
   fieldTags: string;
   addTagPlaceholder: string;
   fieldBody: string;
-  // 削除 / delete
+  // delete
   menuDelete: string;
   menuAddSubtask: string;
   menuAddTask: string;
-  // 色（右クリック）/ color (context menu)
+  // color (context menu)
   menuChangeColor: string;
   menuResetColor: string;
   confirmDeleteTitle: string;
@@ -93,13 +91,13 @@ interface Strings {
   confirmDeleteChildren: string;
   cancel: string;
   deletedNotice: (name: string) => string;
-  // 新規タスク / new task
+  // new task
   newTaskName: string;
-  // コマンド・メニュー / commands & menus
+  // commands & menus
   ribbonOpen: string;
   commandOpen: string;
   menuOpen: string;
-  // 設定 / settings
+  // settings
   setDefaultFolderName: string;
   setDefaultFolderDesc: string;
   setDefaultFolderPlaceholder: string;
@@ -110,7 +108,7 @@ interface Strings {
   setTimezoneName: string;
   setTimezoneDesc: string;
   setTimezoneSystem: string;
-  // 通知 / notifications
+  // notifications
   setNotifyHeading: string;
   setNotifyDesc: string;
   setWebhookDesc: string;
@@ -909,7 +907,7 @@ const STRINGS: Record<Lang, Strings> = {
   },
 };
 
-// 現在言語の文言を返す / strings for the current language
+// strings for the current language
 export function t(): Strings {
   return STRINGS[lang];
 }

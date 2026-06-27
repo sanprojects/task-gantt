@@ -7,14 +7,14 @@ import { checkNotifications } from "./notify";
 
 export default class GanttPlugin extends Plugin {
   settings!: GanttSettings;
-  private lastNotifyCheck = 0; // 前回チェック時刻 / last notification check (epoch ms)
+  private lastNotifyCheck = 0; // last notification check (epoch ms)
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
     this.registerView(VIEW_TYPE_GANTT, (leaf) => new GanttView(leaf, this));
 
-    // 一番左の列（リボン）のアイコン＝フォーカス中フォルダで開く / ribbon opens the focused folder
+    // ribbon opens the focused folder
     this.addRibbonIcon("gantt-chart", t().ribbonOpen, () => {
       void this.activateView(this.currentFolder());
     });
@@ -25,7 +25,7 @@ export default class GanttPlugin extends Plugin {
       callback: () => void this.activateView(this.currentFolder()),
     });
 
-    // フォルダ右クリック → このフォルダを Gantt 表示 / folder context menu
+    // folder context menu
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
         if (file instanceof TFolder) {
@@ -41,8 +41,6 @@ export default class GanttPlugin extends Plugin {
 
     this.addSettingTab(new GanttSettingTab(this.app, this));
 
-    // 通知スケジューラ：1分間隔で「前回チェック以降に来たトリガー」を送信。
-    // Obsidian 終了中に過ぎた分は対象外（起動時に過去分をまとめて送らない）。
     // notification scheduler: every minute, send triggers that arrived since the last check.
     // triggers missed while Obsidian was closed are skipped (no burst on startup).
     this.app.workspace.onLayoutReady(() => {
@@ -58,25 +56,25 @@ export default class GanttPlugin extends Plugin {
     });
   }
 
-  // フォーカス中フォルダを推定 / best-effort current folder
+  // best-effort current folder
   private currentFolder(): string {
-    // 1. ファイルエクスプローラで選択中のフォルダ / folder selected in the file explorer
+    // 1. folder selected in the file explorer
     const explorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
     const view = explorer?.view as unknown as { tree?: { focusedItem?: { file?: TAbstractFile } } } | undefined;
     const focused = view?.tree?.focusedItem?.file;
     if (focused instanceof TFolder) return focused.path;
     if (focused instanceof TFile && focused.parent) return focused.parent.path;
-    // 2. アクティブノートの親フォルダ / active note's parent folder
+    // 2. active note's parent folder
     const af = this.app.workspace.getActiveFile();
     if (af?.parent) return af.parent.path;
-    // 3. 設定の既定フォルダ / configured default
+    // 3. configured default
     return this.settings.rootFolder ?? "";
   }
 
-  // 指定フォルダにスコープして専用ビューを開く / open the view scoped to a folder
+  // open the view scoped to a folder
   async activateView(folderPath: string): Promise<void> {
     const state: GanttViewState = { folder: folderPath };
-    // 既存ビューがあれば再利用してスコープだけ差し替え / reuse an existing view, just re-scope it
+    // reuse an existing view, just re-scope it
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_GANTT)[0];
     const leaf = existing ?? this.app.workspace.getLeaf("tab");
     await leaf.setViewState({
@@ -88,15 +86,15 @@ export default class GanttPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    // loadData() は any を返すので保存形へ明示キャスト / loadData() returns any: cast to the saved shape
+    // loadData() returns any: cast to the saved shape
     const data = (await this.loadData()) as Partial<GanttSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
     this.settings.keys = Object.assign({}, DEFAULT_SETTINGS.keys, this.settings.keys);
-    // 既定の空配列/オブジェクトを共有参照しないよう複製（変更でモジュール既定を汚さない）/ clone so we don't mutate the shared DEFAULT containers
+    // clone so we don't mutate the shared DEFAULT containers
     this.settings.tagColors = (this.settings.tagColors ?? []).map((c) => ({ ...c }));
     this.settings.folderColors = (this.settings.folderColors ?? []).map((c) => ({ ...c }));
     this.settings.columnWidths = { ...(this.settings.columnWidths ?? {}) };
-    // 通知設定も既定とマージ＆複製 / merge notify settings with defaults and clone containers
+    // merge notify settings with defaults and clone containers
     this.settings.notify = Object.assign({}, DEFAULT_SETTINGS.notify, this.settings.notify);
     this.settings.notify.leads = [...(this.settings.notify.leads ?? [])];
     this.settings.notify.sent = { ...(this.settings.notify.sent ?? {}) };
