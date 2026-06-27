@@ -316,11 +316,15 @@ export class GanttView extends ItemView {
     if (this.customPpd != null) return Math.min(MAX_PPD, Math.max(MIN_PPD, this.customPpd));
     if (this.zoom !== "Fit") return pxPerDay(this.zoom);
     const totalDays = Math.max(1, this.range.max - this.range.min + 1);
-    const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - scrollbarWidth();
+    // 1px の安全マージン：端数なしで「ぴったり」埋めると、浮動小数の誤差で scrollWidth が
+    // clientWidth を僅かに超え、全幅の横スクロールバーが出る。1px 引けば確実に収まり（不可視）。
+    // 1px safety margin: filling the width *exactly* lets float rounding push scrollWidth just past
+    // clientWidth, which shows a full-width horizontal scrollbar. Subtracting 1px guarantees it fits (invisible).
+    const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - scrollbarWidth() - 1;
     if (avail <= 0) return pxPerDay("Week"); // まだレイアウト前 / not laid out yet
-    // 端数で割る（floor しない）＝ totalDays*ppd が avail にぴったり一致し、右端に隙間が出ない。
+    // 端数で割る（floor しない）＝ totalDays*ppd が avail にほぼ一致し、右端に目立つ隙間が出ない。
     // MIN_PPD を下回るときだけ最小幅にして横スクロールへ。
-    // use a fractional px/day (no floor) so totalDays*ppd fills avail exactly — no gap on the right.
+    // use a fractional px/day (no floor) so totalDays*ppd ≈ avail — no visible gap on the right.
     // only fall back to MIN_PPD (with horizontal scroll) when it can't fit.
     const ppd = avail / totalDays;
     return ppd >= MIN_PPD ? ppd : MIN_PPD;
