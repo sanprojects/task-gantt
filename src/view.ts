@@ -1,6 +1,7 @@
 import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment, MarkdownRenderer } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
+import { WheelGestureRouter } from "./wheelGesture";
 import {
   collectTasks,
   collectFolders,
@@ -98,10 +99,7 @@ export class GanttView extends ItemView {
   // ホイールによる連続ズームの上書き値（null = ズームモードの固定幅に従う）/ free wheel-zoom override (null = follow the zoom mode)
   private customPpd: number | null = null;
   private wheelRAF = 0; // ホイール連打を 1 フレーム 1 再描画に束ねる / coalesce wheel bursts to one rerender per frame
-  private wheelAxis: "x" | "y" | null = null; // 現ジェスチャの固定軸（斜め入力で縦横が同時に効かないように）/ locked axis for the current gesture (so diagonal input can't do both)
-  private wheelAxisTime = 0; // 直近ホイールの時刻。途切れたら軸ロックを解除 / last wheel timestamp; a pause releases the lock
-  private wheelSumX = 0; // 軸決定前に貯めた横移動量（最初の1イベントは信用しない）/ accumulated horizontal travel before committing the axis (don't trust the first event)
-  private wheelSumY = 0; // 軸決定前に貯めた縦移動量 / accumulated vertical travel before committing the axis
+  private wheelRouter = new WheelGestureRouter(); // ジェスチャ→軸（横=スクロール/縦=ズーム）の振り分け / routes a gesture to an axis (x=scroll, y=zoom)
   private measureCtx: CanvasRenderingContext2D | null = null; // バー内ラベルの幅測定用キャンバス（DOM 非依存・リフロー無し）/ canvas for measuring in-bar label width (no DOM/reflow)
   private measureFamily = ""; // 測定に使うフォントファミリ（初回に取得しキャッシュ）/ font family for measurement, cached on first use
   private selectedPath: string | null = null;
@@ -386,38 +384,19 @@ export class GanttView extends ItemView {
     this.extending = false;
   }
 
-  // ホイール／トラックパッドのジェスチャ。1ジェスチャにつき1軸だけ効かせる（縦=ズーム / 横=横スクロール）。
-  // wheel/trackpad gesture: lock to a single axis per gesture (vertical = zoom, horizontal = scroll) so a diagonal swipe never does both.
+  // ホイール／トラックパッドのジェスチャ。軸の判定は WheelGestureRouter に委譲（縦=ズーム / 横=横スクロール）。
+  // wheel/trackpad gesture; axis decision is delegated to WheelGestureRouter (vertical = zoom, horizontal = scroll).
   private onWheelZoom(e: WheelEvent): void {
     const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
     if (!main) return;
-    // 入力が一定時間途切れたら新しいジェスチャ＝軸ロックと累積をリセット / a pause starts a new gesture: release the lock and reset accumulators
-    if (e.timeStamp - this.wheelAxisTime > 160) {
-      this.wheelAxis = null;
-      this.wheelSumX = 0;
-      this.wheelSumY = 0;
-    }
-    this.wheelAxisTime = e.timeStamp;
-    if (this.wheelAxis == null) {
-      // 本物のピンチ（macOS は wheel + ctrlKey で送る）は方向によらず常にズーム
-      // a real pinch (macOS sends it as wheel + ctrlKey) always zooms, regardless of direction
-      if (e.ctrlKey) {
-        this.wheelAxis = "y";
-      } else {
-        // 最初の1イベントは縦横が混ざりやすい。少し動きを貯めてから「より大きい方」で軸を確定する。
-        // the first event mixes axes; accumulate a little travel, then commit to whichever direction is larger.
-        this.wheelSumX += Math.abs(e.deltaX);
-        this.wheelSumY += Math.abs(e.deltaY);
-        const AXIS_COMMIT = 6; // px。これ未満は判定保留（既定スクロールは止める）/ px; below this, defer the decision (and swallow the default scroll)
-        if (Math.max(this.wheelSumX, this.wheelSumY) < AXIS_COMMIT) {
-          e.preventDefault();
-          return;
-        }
-        this.wheelAxis = this.wheelSumX > this.wheelSumY ? "x" : "y";
-      }
+    const axis = this.wheelRouter.route(e);
+    if (axis == null) {
+      // まだ方向を判定中＝既定スクロールを止めて次イベントを待つ / still deciding: swallow the default scroll and wait
+      e.preventDefault();
+      return;
     }
     const rect = main.getBoundingClientRect();
-    if (this.wheelAxis === "x") {
+    if (axis === "x") {
       // 横スワイプ＝タイムライン横スクロールのみ。縦成分は無視 / horizontal swipe scrolls the timeline only; vertical component ignored
       e.preventDefault();
       main.scrollLeft += e.deltaMode === 1 ? e.deltaX * 16 : e.deltaMode === 2 ? e.deltaX * main.clientWidth : e.deltaX;
