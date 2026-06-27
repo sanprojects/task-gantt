@@ -47,6 +47,7 @@ import {
 } from "./viewConstants";
 import { hashColor, tagColor, folderColor, paintTagChip } from "./color";
 import { ConfirmModal } from "./confirmModal";
+import { TextMeasurer, svgEl, drawBarLabel, elbowPath } from "./svg";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -76,8 +77,8 @@ export class GanttView extends ItemView {
   private customPpd: number | null = null;
   private wheelRAF = 0; // ホイール連打を 1 フレーム 1 再描画に束ねる / coalesce wheel bursts to one rerender per frame
   private wheelRouter = new WheelGestureRouter(); // ジェスチャ→軸（横=スクロール/縦=ズーム）の振り分け / routes a gesture to an axis (x=scroll, y=zoom)
-  private measureCtx: CanvasRenderingContext2D | null = null; // バー内ラベルの幅測定用キャンバス（DOM 非依存・リフロー無し）/ canvas for measuring in-bar label width (no DOM/reflow)
-  private measureFamily = ""; // 測定に使うフォントファミリ（初回に取得しキャッシュ）/ font family for measurement, cached on first use
+  // In-bar label text measurer; reads the font family lazily from the grid host (set after attach).
+  private measurer = new TextMeasurer(() => this.gridHost);
   private selectedPath: string | null = null;
   private folder = ""; // 表示対象フォルダ / scoped folder path
   private collapsed = new Set<string>(); // 折りたたみ中フォルダのキー / collapsed folder keys
@@ -1206,7 +1207,7 @@ export class GanttView extends ItemView {
     this.drawGrid(svg, width, bodyH);
     // 依存作成ハンドルは専用レイヤーに集め、依存矢印より後に追加＝最前面で掴みやすい
     // collect connector handles in their own layer, appended after the arrows so they stay topmost and grabbable
-    const handlesLayer = this.svgEl("g", { class: "ogantt-handles-layer" });
+    const handlesLayer = svgEl("g", { class: "ogantt-handles-layer" });
     this.drawBars(svg, handlesLayer);
     this.drawDependencies(svg); // バーの上に描いて矢印を隠さない / on top of bars so arrows stay visible
     svg.appendChild(handlesLayer); // 矢印の上にハンドルを重ねる / handles above arrows
@@ -1235,22 +1236,22 @@ export class GanttView extends ItemView {
     // 選択行のタイムライン側ハイライト（バーや線より前に追加＝最背面）/ selected-row highlight on the timeline side (added first = behind everything)
     this.rows.forEach((row, i) => {
       if (row.kind === "task" && row.task?.path === this.selectedPath) {
-        svg.appendChild(this.svgEl("rect", { x: 0, y: i * ROW_H, width, height: ROW_H, class: "ogantt-row-sel" }));
+        svg.appendChild(svgEl("rect", { x: 0, y: i * ROW_H, width, height: ROW_H, class: "ogantt-row-sel" }));
       }
     });
     // 行の区切り / row separators
     this.rows.forEach((row, i) => {
       if (row.kind === "group") {
-        const bg = this.svgEl("rect", { x: 0, y: i * ROW_H, width, height: ROW_H, class: "ogantt-grid-group" });
+        const bg = svgEl("rect", { x: 0, y: i * ROW_H, width, height: ROW_H, class: "ogantt-grid-group" });
         svg.appendChild(bg);
       }
-      const line = this.svgEl("line", { x1: 0, y1: (i + 1) * ROW_H, x2: width, y2: (i + 1) * ROW_H, class: "ogantt-grid-row" });
+      const line = svgEl("line", { x1: 0, y1: (i + 1) * ROW_H, x2: width, y2: (i + 1) * ROW_H, class: "ogantt-grid-row" });
       svg.appendChild(line);
     });
     // 今日の線 / today marker
     const todayX = (todayIndex() - this.range.min) * this.ppd;
     if (todayX >= 0 && todayX <= width) {
-      svg.appendChild(this.svgEl("line", { x1: todayX, y1: 0, x2: todayX, y2: height, class: "ogantt-today" }));
+      svg.appendChild(svgEl("line", { x1: todayX, y1: 0, x2: todayX, y2: height, class: "ogantt-today" }));
     }
   }
 
@@ -1263,10 +1264,10 @@ export class GanttView extends ItemView {
         const gx = this.xOf(row.span.start);
         const gw = Math.max((dayIndex(row.span.end) - dayIndex(row.span.start) + 1) * this.ppd, 6);
         const gy = i * ROW_H + ROW_H / 2 - 3;
-        svg.appendChild(this.svgEl("rect", { x: gx, y: gy, width: gw, height: 6, rx: 2, class: "ogantt-group-bar" }));
+        svg.appendChild(svgEl("rect", { x: gx, y: gy, width: gw, height: 6, rx: 2, class: "ogantt-group-bar" }));
         // 端のキャップ / end caps
-        svg.appendChild(this.svgEl("path", { d: `M ${gx} ${gy} l 0 8 l 5 -8 z`, class: "ogantt-group-cap" }));
-        svg.appendChild(this.svgEl("path", { d: `M ${gx + gw} ${gy} l 0 8 l -5 -8 z`, class: "ogantt-group-cap" }));
+        svg.appendChild(svgEl("path", { d: `M ${gx} ${gy} l 0 8 l 5 -8 z`, class: "ogantt-group-cap" }));
+        svg.appendChild(svgEl("path", { d: `M ${gx + gw} ${gy} l 0 8 l -5 -8 z`, class: "ogantt-group-cap" }));
         return;
       }
       const t = row.task!;
@@ -1281,10 +1282,10 @@ export class GanttView extends ItemView {
           this.colorBy === "assignee"
             ? t.assignee ? hashColor(t.assignee) : FALLBACK_BAR
             : (t.status && statusColor.get(t.status)) || FALLBACK_BAR;
-        const rg = this.svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
-        rg.appendChild(this.svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
+        const rg = svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
+        rg.appendChild(svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
         const sdays = dayIndex(row.span.end) - dayIndex(row.span.start) + 1;
-        this.drawBarLabel(rg, sx, sw, i * ROW_H + ROW_H / 2, sdays, t.name);
+        drawBarLabel(this.measurer, rg, sx, sw, i * ROW_H + ROW_H / 2, sdays, t.name);
         rg.addEventListener("click", (ev) => { ev.stopPropagation(); this.activateTask(t.path, ev); });
         rg.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.openTaskNote(t.path); });
         svg.appendChild(rg);
@@ -1300,7 +1301,7 @@ export class GanttView extends ItemView {
           ? t.assignee ? hashColor(t.assignee) : FALLBACK_BAR
           : (t.status && statusColor.get(t.status)) || FALLBACK_BAR;
 
-      const g = this.svgEl("g", { class: "ogantt-bar-g", "data-path": t.path }) as SVGGElement;
+      const g = svgEl("g", { class: "ogantt-bar-g", "data-path": t.path }) as SVGGElement;
       const cyMid = i * ROW_H + ROW_H / 2;
       let lx = x; // 左端ハンドル位置 / left handle x
       let rx = x; // 右端ハンドル位置 / right handle x
@@ -1309,7 +1310,7 @@ export class GanttView extends ItemView {
         const cx = x;
         const cy = cyMid;
         const r = h / 2;
-        const dia = this.svgEl("path", {
+        const dia = svgEl("path", {
           d: `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`,
           class: "ogantt-milestone",
           fill: color,
@@ -1321,15 +1322,15 @@ export class GanttView extends ItemView {
       } else {
         const endStr = anchorEnd(t) ?? aStart;
         const w = Math.max((dayIndex(endStr) - dayIndex(aStart) + 1) * this.ppd, 6);
-        const rect = this.svgEl("rect", { x, y, width: w, height: h, rx: 4, class: "ogantt-bar", fill: color });
+        const rect = svgEl("rect", { x, y, width: w, height: h, rx: 4, class: "ogantt-bar", fill: color });
         g.appendChild(rect);
         if (t.progress != null && t.progress > 0) {
           const pw = (w * Math.min(100, t.progress)) / 100;
-          g.appendChild(this.svgEl("rect", { x, y, width: pw, height: h, rx: 4, class: "ogantt-bar-progress" }));
+          g.appendChild(svgEl("rect", { x, y, width: pw, height: h, rx: 4, class: "ogantt-bar-progress" }));
         }
         // バー内ラベル：左から「期間 名前」。名前はバー幅に収まる分だけ … で省略 / in-bar label "<days>d  <name>", name truncated with … to fit
         const days = dayIndex(endStr) - dayIndex(aStart) + 1;
-        this.drawBarLabel(g, x, w, cyText(i), days, t.name);
+        drawBarLabel(this.measurer, g, x, w, cyText(i), days, t.name);
         this.attachDrag(g, rect, t);
         // 端ホバーで ↔ カーソル、中央は掴むカーソル / ew-resize near edges, grab in the middle
         rect.addEventListener("mousemove", (e: MouseEvent) => {
@@ -1347,7 +1348,7 @@ export class GanttView extends ItemView {
       const handleDefs: [number, "start" | "finish"][] = [[lx - HGAP, "start"], [rx + HGAP, "finish"]];
       const handles: SVGElement[] = [];
       for (const [hx, end] of handleDefs) {
-        const handle = this.svgEl("circle", { cx: hx, cy: cyMid, r: 5, class: "ogantt-handle" });
+        const handle = svgEl("circle", { cx: hx, cy: cyMid, r: 5, class: "ogantt-handle" });
         handle.addEventListener("pointerdown", (e: PointerEvent) => this.startLink(g, svg, t, end, e));
         handle.addEventListener("mouseenter", () => handle.classList.add("is-visible"));
         handle.addEventListener("mouseleave", () => handle.classList.remove("is-visible"));
@@ -1388,7 +1389,7 @@ export class GanttView extends ItemView {
     const box = svg.getBoundingClientRect();
     const x1 = ev.clientX - box.left;
     const y1 = ev.clientY - box.top;
-    const tmp = this.svgEl("path", { d: `M ${x1} ${y1} L ${x1} ${y1}`, class: "ogantt-link-temp" });
+    const tmp = svgEl("path", { d: `M ${x1} ${y1} L ${x1} ${y1}`, class: "ogantt-link-temp" });
     svg.appendChild(tmp);
 
     const clearHi = () =>
@@ -1572,12 +1573,12 @@ export class GanttView extends ItemView {
           violation = dayIndex(sStart) <= dayIndex(pEndD);
           if (tx - sx0 > GAP * 2) {
             const mx = sx0 + Math.max(GAP, (tx - sx0) / 2);
-            d = this.elbowPath([[sx0, py], [mx, py], [mx, sy], [tx, sy]]);
+            d = elbowPath([[sx0, py], [mx, py], [mx, sy], [tx, sy]]);
             mxX = mx;
           } else {
             const ax = sx0 + GAP;
             const bx = tx - GAP;
-            d = this.elbowPath([[sx0, py], [ax, py], [ax, mid], [bx, mid], [bx, sy], [tx, sy]]);
+            d = elbowPath([[sx0, py], [ax, py], [ax, mid], [bx, mid], [bx, sy], [tx, sy]]);
             mxX = (ax + bx) / 2;
           }
           arrowD = `M ${tx} ${sy} l -7 -4 l 0 8 z`; // 右向き / points right
@@ -1587,7 +1588,7 @@ export class GanttView extends ItemView {
           const tx = sLeft;
           violation = dayIndex(sStart) < dayIndex(pStartD);
           const leftMost = Math.min(sx0, tx) - GAP;
-          d = this.elbowPath([[sx0, py], [leftMost, py], [leftMost, sy], [tx, sy]]);
+          d = elbowPath([[sx0, py], [leftMost, py], [leftMost, sy], [tx, sy]]);
           mxX = leftMost;
           arrowD = `M ${tx} ${sy} l -7 -4 l 0 8 z`; // 右向き / points right
         } else {
@@ -1596,7 +1597,7 @@ export class GanttView extends ItemView {
           const tx = sRight;
           violation = dayIndex(sEnd) < dayIndex(pEndD);
           const rightMost = Math.max(sx0, tx) + GAP;
-          d = this.elbowPath([[sx0, py], [rightMost, py], [rightMost, sy], [tx, sy]]);
+          d = elbowPath([[sx0, py], [rightMost, py], [rightMost, sy], [tx, sy]]);
           mxX = rightMost;
           arrowD = `M ${tx} ${sy} l 7 -4 l 0 8 z`; // 左向き / points left
         }
@@ -1604,30 +1605,30 @@ export class GanttView extends ItemView {
         const succPath = t.path;
         const predPath = dep.path;
         const depType = dep.type;
-        const depG = this.svgEl("g", { class: "ogantt-dep-g" }) as SVGGElement;
+        const depG = svgEl("g", { class: "ogantt-dep-g" }) as SVGGElement;
 
-        const hit = this.svgEl("path", { d, class: "ogantt-dep-hit" });
-        const tip = this.svgEl("title", {});
+        const hit = svgEl("path", { d, class: "ogantt-dep-hit" });
+        const tip = svgEl("title", {});
         tip.textContent = tr().depTooltip(depType);
         hit.appendChild(tip);
         depG.appendChild(hit);
-        depG.appendChild(this.svgEl("path", { d, class: "ogantt-dep" + (violation ? " is-violation" : "") }));
-        depG.appendChild(this.svgEl("path", {
+        depG.appendChild(svgEl("path", { d, class: "ogantt-dep" + (violation ? " is-violation" : "") }));
+        depG.appendChild(svgEl("path", {
           d: arrowD,
           class: "ogantt-dep-arrow" + (violation ? " is-violation" : ""),
         }));
 
         // FS 以外は種類ラベルを表示 / show a type label for non-FS
         if (depType !== "FS") {
-          const lbl = this.svgEl("text", { x: mxX, y: mxY - 9, class: "ogantt-dep-type" });
+          const lbl = svgEl("text", { x: mxX, y: mxY - 9, class: "ogantt-dep-type" });
           lbl.textContent = depType;
           depG.appendChild(lbl);
         }
 
         // ホバーで出る × 目印 / X marker shown on hover
-        const xg = this.svgEl("g", { class: "ogantt-dep-x" }) as SVGGElement;
-        xg.appendChild(this.svgEl("circle", { cx: mxX, cy: mxY, r: 8, class: "ogantt-dep-x-bg" }));
-        xg.appendChild(this.svgEl("path", {
+        const xg = svgEl("g", { class: "ogantt-dep-x" }) as SVGGElement;
+        xg.appendChild(svgEl("circle", { cx: mxX, cy: mxY, r: 8, class: "ogantt-dep-x-bg" }));
+        xg.appendChild(svgEl("path", {
           d: `M ${mxX - 3} ${mxY - 3} L ${mxX + 3} ${mxY + 3} M ${mxX + 3} ${mxY - 3} L ${mxX - 3} ${mxY + 3}`,
           class: "ogantt-dep-x-mark",
         }));
@@ -1650,7 +1651,7 @@ export class GanttView extends ItemView {
   private liveBarLabel(g: SVGGElement, rect: SVGElement, x: number, w: number, days: number, name: string): void {
     g.querySelectorAll(".ogantt-bar-intext").forEach((el) => el.remove());
     const cy = parseFloat(rect.getAttribute("y")!) + parseFloat(rect.getAttribute("height")!) / 2;
-    this.drawBarLabel(g, x, w, cy, days, name);
+    drawBarLabel(this.measurer, g, x, w, cy, days, name);
   }
 
   // バー/菱形のドラッグで日付を書き戻す / drag a bar or diamond to reschedule
@@ -1939,7 +1940,7 @@ export class GanttView extends ItemView {
       const idx = this.rows.findIndex((r) => r.kind === "task" && r.task?.path === path);
       if (idx >= 0) {
         const w = (this.range.max - this.range.min + 1) * this.ppd;
-        const rect = this.svgEl("rect", { x: 0, y: idx * ROW_H, width: w, height: ROW_H, class: "ogantt-row-sel" });
+        const rect = svgEl("rect", { x: 0, y: idx * ROW_H, width: w, height: ROW_H, class: "ogantt-row-sel" });
         svg.insertBefore(rect, svg.firstChild); // behind everything else
       }
     }
@@ -2391,72 +2392,4 @@ export class GanttView extends ItemView {
     activeDocument.addEventListener("keydown", onKey, true);
   }
 
-  // SVG 要素生成ヘルパー / SVG element helper
-  private svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
-    const el = activeDocument.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-    return el;
-  }
-
-  // バー内テキストの幅をキャンバスで測定（DOM 非依存＝未アタッチでも測れ、リフローも起こさない）
-  // measure in-bar text width via canvas (works before attach, triggers no reflow)
-  private textWidth(s: string, weight: number): number {
-    if (!this.measureCtx) this.measureCtx = activeDocument.createElement("canvas").getContext("2d");
-    if (!this.measureFamily) this.measureFamily = getComputedStyle(this.gridHost).fontFamily || "sans-serif";
-    const ctx = this.measureCtx;
-    if (!ctx) return s.length * 6; // キャンバス不可なら粗い見積り / rough estimate if canvas is unavailable
-    ctx.font = `${weight} 10px ${this.measureFamily}`;
-    return ctx.measureText(s).width;
-  }
-
-  // 最大幅に収まるよう名前の末尾を … で省略（二分探索で測定回数を抑える）/ truncate the name tail with … to fit maxWidth
-  private fitName(name: string, maxWidth: number): string {
-    if (this.textWidth(name, 400) <= maxWidth) return name;
-    let lo = 0, hi = name.length;
-    while (lo < hi) {
-      const mid = Math.ceil((lo + hi) / 2);
-      if (this.textWidth(name.slice(0, mid) + "…", 400) <= maxWidth) lo = mid; else hi = mid - 1;
-    }
-    return lo > 0 ? name.slice(0, lo) + "…" : "";
-  }
-
-  // バー内ラベルを描画：左寄せで「期間  名前(…)」。バーが狭ければ名前を省略／非表示 / draw the in-bar label: "<days>d  <name(…)>", left-aligned
-  private drawBarLabel(parent: SVGElement, x: number, w: number, cy: number, days: number, name: string): void {
-    if (w < 22) return; // 期間すら入らない極小バーは無ラベル / too small even for the duration
-    const PAD = 6, GAP = 6;
-    const durStr = `${days}d`;
-    const durW = this.textWidth(durStr, 600);
-    const dur = this.svgEl("text", { x: x + PAD, y: cy, class: "ogantt-bar-intext is-dur" });
-    dur.textContent = durStr;
-    parent.appendChild(dur);
-    const avail = w - PAD - durW - GAP - PAD; // 名前に使える残り幅 / width left for the name
-    if (avail < 16) return; // 名前を出すには狭すぎ＝期間のみ / too narrow for a name, show duration only
-    const shown = this.fitName(name, avail);
-    if (!shown) return;
-    const nm = this.svgEl("text", { x: x + PAD + durW + GAP, y: cy, class: "ogantt-bar-intext" });
-    nm.textContent = shown;
-    parent.appendChild(nm);
-  }
-
-  // 直角の折れ線を軽く丸める / build an SVG path from points, rounding the right-angle elbows
-  private elbowPath(pts: Array<[number, number]>, r = 4): string {
-    if (pts.length < 3) return pts.map((p, i) => `${i ? "L" : "M"} ${p[0]} ${p[1]}`).join(" ");
-    let d = `M ${pts[0][0]} ${pts[0][1]}`;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const [px, py] = pts[i - 1];
-      const [cx, cy] = pts[i];
-      const [nx, ny] = pts[i + 1];
-      const d1 = Math.hypot(cx - px, cy - py) || 1;
-      const d2 = Math.hypot(nx - cx, ny - cy) || 1;
-      const rr = Math.min(r, d1 / 2, d2 / 2); // セグメント長を超えないよう半径を制限 / clamp to segment length
-      const e1x = cx + ((px - cx) / d1) * rr;
-      const e1y = cy + ((py - cy) / d1) * rr;
-      const e2x = cx + ((nx - cx) / d2) * rr;
-      const e2y = cy + ((ny - cy) / d2) * rr;
-      d += ` L ${e1x} ${e1y} Q ${cx} ${cy} ${e2x} ${e2y}`;
-    }
-    const last = pts[pts.length - 1];
-    d += ` L ${last[0]} ${last[1]}`;
-    return d;
-  }
 }
