@@ -71,17 +71,22 @@ if (prod) {
 } else {
   await context.watch();
   // styles.css / manifest.json aren't part of the JS dependency graph, so esbuild's
-  // watcher never re-runs for them. Watch them directly and mirror to the vault on change.
+  // watcher never re-runs for them. Watch the project dir (filtering by name) and mirror
+  // to the vault on change. Watching the DIR, not the file, survives editors that save
+  // via temp-file + rename (which changes the inode and breaks a per-file watch).
   if (vaultDir) {
-    for (const f of ["styles.css", "manifest.json"]) {
-      let t = null;
-      watchFile(f, () => {
-        clearTimeout(t); // debounce editor multi-event saves
-        t = setTimeout(async () => {
-          await copyOne(f);
-          console.log(`[sync-to-vault] ${f} -> vault`);
-        }, 50);
-      });
-    }
+    const assets = new Set(["styles.css", "manifest.json"]);
+    let t = null;
+    const pending = new Set();
+    watchFile(".", (_event, filename) => {
+      if (!assets.has(filename)) return;
+      pending.add(filename);
+      clearTimeout(t); // debounce editor multi-event saves
+      t = setTimeout(async () => {
+        for (const f of pending) await copyOne(f);
+        console.log(`[sync-to-vault] ${[...pending].join(", ")} -> vault`);
+        pending.clear();
+      }, 60);
+    });
   }
 }
