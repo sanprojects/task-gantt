@@ -1170,7 +1170,36 @@ export class GanttView extends ItemView {
                 void this.refresh();
               });
             }
-            nameTd.createSpan({ cls: "ogantt-task-name-label", text: t.name });
+            {
+              const nameEl = nameTd.createSpan({ cls: "ogantt-task-name-label" });
+              nameEl.contentEditable = "true";
+              nameEl.spellcheck = false;
+              nameEl.textContent = t.name;
+              // prevent row-level click/dblclick/drag from firing while editing the name
+              nameEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+              nameEl.addEventListener("click", (e) => e.stopPropagation());
+              nameEl.addEventListener("dblclick", (e) => e.stopPropagation());
+              let committed = false;
+              const task = t;
+              const commit = async () => {
+                if (committed) return;
+                committed = true;
+                const newName = (nameEl.textContent ?? "").trim();
+                if (newName && newName !== task.name) {
+                  task.name = newName;
+                  await renameTask(this.app, task.path, newName);
+                } else if (!newName) {
+                  nameEl.textContent = task.name; // восстановить если стёрли / restore if cleared
+                }
+                committed = false; // сброс чтобы повторный blur мог работать / reset so subsequent blurs work
+              };
+              nameEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") { e.preventDefault(); nameEl.blur(); }
+                else if (e.key === "Escape") { e.preventDefault(); nameEl.textContent = task.name; nameEl.blur(); }
+                e.stopPropagation();
+              });
+              nameEl.addEventListener("blur", () => void commit());
+            }
             // タイトル右クリック＝削除メニュー / right-click the title = delete menu
             nameTd.addEventListener("contextmenu", (e) => {
               e.preventDefault();
@@ -1763,58 +1792,13 @@ export class GanttView extends ItemView {
   // create a 1-day task (start = end = today) in the current folder, then open it in the native sidebar view (rename via the note)
   private startInlineEdit(path: string): void {
     const row = this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`);
-    if (!row) return;
-    const nameTd = row.querySelector(".ogantt-td-name") as HTMLElement | null;
-    if (!nameTd) return;
-    const label = nameTd.querySelector(".ogantt-task-name-label") as HTMLElement | null;
-    if (!label || nameTd.querySelector(".ogantt-inline-input")) return;
-    const task = this.tasks.find((x) => x.path === path);
-    if (!task) return;
-
-    label.hide();
-    const editor = nameTd.createSpan({ cls: "ogantt-inline-input" });
-    editor.contentEditable = "true";
-    editor.textContent = task.name;
-    editor.style.minWidth = "4em";
-
-    editor.focus();
+    const nameEl = row?.querySelector<HTMLElement>(".ogantt-task-name-label");
+    if (!nameEl) return;
+    nameEl.focus();
     const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-
-    let committed = false;
-    const commit = async () => {
-      if (committed) return;
-      committed = true;
-      const newName = (editor.textContent ?? "").trim();
-      const changed = newName && newName !== task.name;
-      if (changed) {
-        label.textContent = newName;
-        task.name = newName;
-      }
-      editor.remove();
-      label.show();
-      if (changed) {
-        await renameTask(this.app, path, newName);
-      }
-    };
-    const cancel = () => {
-      if (committed) return;
-      committed = true;
-      editor.remove();
-      label.show();
-    };
-
-    editor.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); void commit(); }
-      else if (e.key === "Escape") { e.preventDefault(); cancel(); }
-      e.stopPropagation();
-    });
-    editor.addEventListener("blur", () => void commit());
-    editor.addEventListener("click", (e) => e.stopPropagation());
+    range.selectNodeContents(nameEl);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
   }
 
   private async createTaskInFolder(folderPath: string): Promise<void> {

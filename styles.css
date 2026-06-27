@@ -429,6 +429,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ogantt-task-name-label[contenteditable] {
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 2em;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.ogantt-task-name-label[contenteditable]:focus {
+  background: var(--background-modifier-form-field);
+}
 .ogantt-td-group {
   display: flex;
   align-items: center;
