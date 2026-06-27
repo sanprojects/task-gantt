@@ -22,9 +22,11 @@
 .ogantt-spacer {
   flex: 1;
 }
+/* アクティブなモードボタン：控えめな塗り＋太字（テーマのアクセント色で主張しない）/ active mode button: subtle fill + bold, no loud accent */
 .ogantt-toolbar button.is-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  color: var(--text-normal);
+  font-weight: 600;
 }
 /* 新規タスク追加ボタン（アイコン＋ラベル）/ add-task button (icon + label) */
 .ogantt-add {
@@ -174,6 +176,30 @@
   border-radius: 3px;
   flex: none;
 }
+/* クリックでステータスを絞り込めるトグルチップ / clickable toggle chip for status filtering */
+.ogantt-legend-chip.is-toggle {
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 999px;
+  user-select: none;
+  transition: background-color 0.1s ease, opacity 0.1s ease;
+}
+.ogantt-legend-chip.is-toggle:hover {
+  background: var(--background-modifier-hover);
+}
+.ogantt-legend-chip.is-toggle:focus-visible {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+/* 外したステータスは退色＋スウォッチを白抜きにして「OFF」を明示 / dropped status: dimmed text + hollow swatch to read as "off" */
+.ogantt-legend-chip.is-off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.ogantt-legend-chip.is-off .ogantt-legend-swatch {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
 
 /* 単一スクロール内の CSS グリッド。sticky で表ヘッダ・日付軸・左列を固定し行を揃える */
 /* CSS grid in one scroll container; sticky heads + left column keep rows aligned */
@@ -245,7 +271,7 @@
 .ogantt-tr {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
+  border-bottom: 1px solid var(--background-modifier-border);
   cursor: pointer;
   font-size: 0.85em;
 }
@@ -414,7 +440,7 @@
   display: block;
 }
 .ogantt-grid-row {
-  stroke: var(--background-modifier-border-hover);
+  stroke: var(--background-modifier-border);
   stroke-width: 1;
 }
 .ogantt-grid-group {
@@ -425,7 +451,7 @@
   stroke: var(--color-red);
   stroke-width: 1;
   stroke-dasharray: 3 2;
-  opacity: 0.7;
+  opacity: 0.45;
 }
 .ogantt-bar {
   cursor: grab;
@@ -434,7 +460,7 @@
   cursor: grabbing;
 }
 .ogantt-bar-progress {
-  fill: rgba(0, 0, 0, 0.28);
+  fill: rgba(0, 0, 0, 0.15);
   pointer-events: none;
 }
 .ogantt-milestone {
@@ -445,20 +471,30 @@
 .ogantt-milestone:active {
   cursor: grabbing;
 }
-/* フォルダのまとめバー / group (folder) summary bar */
+/* フォルダのまとめバー：構造を示す控えめなグレー（ステータス色と競合しない）/ group (folder) summary bar: muted neutral so it doesn't fight the status palette */
 .ogantt-group-bar {
-  fill: var(--text-accent);
-  opacity: 0.85;
+  fill: var(--text-muted);
+  opacity: 0.35;
 }
 .ogantt-group-cap {
-  fill: var(--text-accent);
-  opacity: 0.85;
+  fill: var(--text-muted);
+  opacity: 0.35;
 }
 .ogantt-bar-label {
   font-size: 11px;
   fill: var(--text-muted);
   dominant-baseline: middle;
   pointer-events: none;
+}
+/* バー内に重ねる期間ラベル（例 3d）/ duration label overlaid inside the bar (e.g. 3d) */
+.ogantt-bar-duration {
+  font-size: 10px;
+  font-weight: 600;
+  fill: #fff;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  opacity: 0.92;
 }
 .ogantt-dep {
   fill: none;

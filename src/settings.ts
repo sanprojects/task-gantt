@@ -90,10 +90,11 @@ export const DEFAULT_SETTINGS: GanttSettings = {
   rootFolder: "",
   recurse: true,
   statuses: [
-    { id: "todo", label: "To do", color: "#9aa0a6" },
-    { id: "in-progress", label: "In progress", color: "#3b82f6" },
-    { id: "blocked", label: "Blocked", color: "#ef4444" },
-    { id: "done", label: "Done", color: "#22c55e" },
+    // 落ち着いた現代的なパレット（slate / indigo / rose / emerald）/ muted modern palette
+    { id: "todo", label: "To do", color: "#94a3b8" },
+    { id: "in-progress", label: "In progress", color: "#6366f1" },
+    { id: "blocked", label: "Blocked", color: "#f43f5e" },
+    { id: "done", label: "Done", color: "#10b981" },
   ],
   defaultZoom: "Week",
   dateFormat: "YYYY/MM/DD",
