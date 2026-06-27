@@ -129,6 +129,11 @@
 .ogantt-status-empty {
   color: var(--text-faint);
 }
+/* ステータスセル：ドットとラベルを縦中央で揃える / status cell: center the dot + label on one line */
+.ogantt-td.ogantt-td-status {
+  display: flex;
+  align-items: center;
+}
 /* オプションのアイコン（意味はツールチップで補助）/ option icon (meaning via tooltip) */
 .ogantt-opt-ico {
   display: inline-flex;
