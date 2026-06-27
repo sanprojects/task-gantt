@@ -1918,6 +1918,15 @@ export class GanttView extends ItemView {
   // タスクのノートを右サイドバーの 1 枚のリーフで開く（毎回使い回す＝ネイティブのファイルナビゲーション風）
   // open the task's note in a single, reused right-sidebar leaf — like native file navigation, no tab pile-up
   private async openTaskInSidebar(path: string): Promise<void> {
+    // повторный клик по уже выбранному таску закрывает сайдбар / second click on the same task closes the sidebar
+    if (this.selectedPath === path && this.noteLeaf && this.isLeafAttached(this.noteLeaf)) {
+      this.noteLeaf.detach();
+      this.noteLeaf = null;
+      this.selectedPath = null;
+      this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
+      this.gridHost?.querySelector<SVGElement>(".ogantt-svg")?.querySelectorAll(".ogantt-row-sel").forEach((e) => e.remove());
+      return;
+    }
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
     // in-memory ref gone? try to recover by the persisted leaf id so the same pane survives reloads
