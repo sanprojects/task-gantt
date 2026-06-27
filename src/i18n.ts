@@ -83,6 +83,8 @@ interface Strings {
   fieldBody: string;
   // 削除 / delete
   menuDelete: string;
+  menuAddSubtask: string;
+  menuAddTask: string;
   // 色（右クリック）/ color (context menu)
   menuChangeColor: string;
   menuResetColor: string;
@@ -183,6 +185,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "タグを追加…",
     fieldBody: "本文",
     menuDelete: "削除",
+    menuAddSubtask: "サブタスクを追加",
+    menuAddTask: "タスクを追加",
     confirmDeleteTitle: "タスクを削除",
     confirmDeleteBody: (name) => `「${name}」を削除しますか？ ゴミ箱へ移動します。`,
     confirmDeleteChildren: "サブタスクはトップレベルへ移動します。",
@@ -277,6 +281,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "Add a tag…",
     fieldBody: "Body",
     menuDelete: "Delete",
+    menuAddSubtask: "Add subtask",
+    menuAddTask: "Add task",
     confirmDeleteTitle: "Delete task",
     confirmDeleteBody: (name) => `Delete "${name}"? It will be moved to the trash.`,
     confirmDeleteChildren: "Its subtasks will move to the top level.",
@@ -371,6 +377,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "添加标签…",
     fieldBody: "正文",
     menuDelete: "删除",
+    menuAddSubtask: "添加子任务",
+    menuAddTask: "添加任务",
     confirmDeleteTitle: "删除任务",
     confirmDeleteBody: (name) => `要删除“${name}”吗？将移动到回收站。`,
     confirmDeleteChildren: "其子任务将移动到顶层。",
@@ -465,6 +473,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "新增標籤…",
     fieldBody: "內文",
     menuDelete: "刪除",
+    menuAddSubtask: "新增子任務",
+    menuAddTask: "新增任務",
     confirmDeleteTitle: "刪除任務",
     confirmDeleteBody: (name) => `要刪除「${name}」嗎？將移動到回收筒。`,
     confirmDeleteChildren: "其子任務將移動到頂層。",
@@ -559,6 +569,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "태그 추가…",
     fieldBody: "본문",
     menuDelete: "삭제",
+    menuAddSubtask: "하위 작업 추가",
+    menuAddTask: "작업 추가",
     confirmDeleteTitle: "작업 삭제",
     confirmDeleteBody: (name) => `"${name}"을(를) 삭제하시겠습니까? 휴지통으로 이동합니다.`,
     confirmDeleteChildren: "하위 작업은 최상위로 이동합니다.",
@@ -653,6 +665,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "Ajouter une étiquette…",
     fieldBody: "Contenu",
     menuDelete: "Supprimer",
+    menuAddSubtask: "Ajouter une sous-tâche",
+    menuAddTask: "Ajouter une tâche",
     confirmDeleteTitle: "Supprimer la tâche",
     confirmDeleteBody: (name) => `Supprimer « ${name} » ? Elle sera placée dans la corbeille.`,
     confirmDeleteChildren: "Ses sous-tâches passeront au niveau supérieur.",
@@ -747,6 +761,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "Añadir una etiqueta…",
     fieldBody: "Cuerpo",
     menuDelete: "Eliminar",
+    menuAddSubtask: "Agregar subtarea",
+    menuAddTask: "Agregar tarea",
     confirmDeleteTitle: "Eliminar tarea",
     confirmDeleteBody: (name) => `¿Eliminar «${name}»? Se moverá a la papelera.`,
     confirmDeleteChildren: "Sus subtareas pasarán al nivel superior.",
@@ -841,6 +857,8 @@ const STRINGS: Record<Lang, Strings> = {
     addTagPlaceholder: "Добавить тег…",
     fieldBody: "Текст",
     menuDelete: "Удалить",
+    menuAddSubtask: "Добавить подзадачу",
+    menuAddTask: "Добавить задачу",
     confirmDeleteTitle: "Удалить задачу",
     confirmDeleteBody: (name) => `Удалить «${name}»? Будет перемещена в корзину.`,
     confirmDeleteChildren: "Её подзадачи переместятся на верхний уровень.",

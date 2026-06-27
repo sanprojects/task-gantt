@@ -1105,9 +1105,31 @@ export class GanttView extends ItemView {
         g.createSpan({ text: row.group });
         // 見出しを右クリック＝色を変更（フォルダ／タグ。(なし) は除く）/ right-click a heading to change its color
         if (this.groupBy === "folder" && row.key != null) {
-          g.addEventListener("contextmenu", (e) => { e.preventDefault(); this.openColorMenu(e, "folder", row.group); });
+          g.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            const folderPath = this.folder ? `${this.folder}/${row.key}` : (row.key ?? "");
+            const m = new Menu();
+            m.addItem((i) => i.setTitle(strings.menuAddTask).setIcon("plus-circle").onClick(() => void this.createTaskInFolder(folderPath)));
+            m.addSeparator();
+            m.addItem((i) => i.setTitle(strings.menuChangeColor).setIcon("palette").onClick(() => this.openColorMenu(e, "folder", row.group)));
+            m.showAtMouseEvent(e);
+          });
         } else if (this.groupBy === "tag" && row.group !== strings.noneLabel) {
-          g.addEventListener("contextmenu", (e) => { e.preventDefault(); this.openColorMenu(e, "tag", row.group); });
+          g.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            const m = new Menu();
+            m.addItem((i) => i.setTitle(strings.menuAddTask).setIcon("plus-circle").onClick(() => void this.createTaskInFolder(this.folder)));
+            m.addSeparator();
+            m.addItem((i) => i.setTitle(strings.menuChangeColor).setIcon("palette").onClick(() => this.openColorMenu(e, "tag", row.group)));
+            m.showAtMouseEvent(e);
+          });
+        } else if (row.kind === "group") {
+          g.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            const m = new Menu();
+            m.addItem((i) => i.setTitle(strings.menuAddTask).setIcon("plus-circle").onClick(() => void this.createTaskInFolder(this.folder)));
+            m.showAtMouseEvent(e);
+          });
         }
         tr.onclick = () => {
           if (row.key == null) return;
@@ -1148,11 +1170,16 @@ export class GanttView extends ItemView {
                 void this.refresh();
               });
             }
-            nameTd.createSpan({ text: t.name });
+            nameTd.createSpan({ cls: "ogantt-task-name-label", text: t.name });
+            nameTd.addEventListener("dblclick", (e) => {
+              e.stopPropagation();
+              this.startInlineEdit(t.path);
+            });
             // タイトル右クリック＝削除メニュー / right-click the title = delete menu
             nameTd.addEventListener("contextmenu", (e) => {
               e.preventDefault();
               const m = new Menu();
+              m.addItem((i) => i.setTitle(strings.menuAddSubtask).setIcon("plus-circle").onClick(() => void this.createSubtask(t.path)));
               m.addItem((i) => i.setTitle(strings.menuDelete).setIcon("trash-2").onClick(() => this.confirmDelete(t.path)));
               m.showAtMouseEvent(e);
             });
@@ -1717,6 +1744,73 @@ export class GanttView extends ItemView {
   // ----- 新規タスク作成 / create a new task -----
   // 今のフォルダに 1 日タスク（開始=終了=今日）を作り、サイドバーのネイティブ表示で開く（命名はノートのリネームで）
   // create a 1-day task (start = end = today) in the current folder, then open it in the native sidebar view (rename via the note)
+  private startInlineEdit(path: string): void {
+    const row = this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`);
+    if (!row) return;
+    const nameTd = row.querySelector(".ogantt-td-name") as HTMLElement | null;
+    if (!nameTd) return;
+    const label = nameTd.querySelector(".ogantt-task-name-label") as HTMLElement | null;
+    if (!label || nameTd.querySelector(".ogantt-inline-input")) return;
+    const task = this.tasks.find((x) => x.path === path);
+    if (!task) return;
+
+    label.hide();
+    const editor = nameTd.createSpan({ cls: "ogantt-inline-input" });
+    editor.contentEditable = "true";
+    editor.textContent = task.name;
+    editor.style.minWidth = "4em";
+
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    let committed = false;
+    const commit = async () => {
+      if (committed) return;
+      committed = true;
+      const newName = (editor.textContent ?? "").trim();
+      const changed = newName && newName !== task.name;
+      if (changed) {
+        label.textContent = newName;
+        task.name = newName;
+      }
+      editor.remove();
+      label.show();
+      if (changed) {
+        await renameTask(this.app, path, newName);
+      }
+    };
+    const cancel = () => {
+      if (committed) return;
+      committed = true;
+      editor.remove();
+      label.show();
+    };
+
+    editor.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); void commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+      e.stopPropagation();
+    });
+    editor.addEventListener("blur", () => void commit());
+    editor.addEventListener("click", (e) => e.stopPropagation());
+  }
+
+  private async createTaskInFolder(folderPath: string): Promise<void> {
+    const file = await createTask(this.app, folderPath, tr().newTaskName);
+    if (!file) return;
+    const k = this.plugin.settings.keys;
+    const today = dayToStr(todayIndex());
+    await writeField(this.app, file.path, k.start, today);
+    await writeField(this.app, file.path, k.end, today);
+    await this.refresh();
+    this.startInlineEdit(file.path);
+  }
+
   private async createNewTask(): Promise<void> {
     const file = await createTask(this.app, this.folder, tr().newTaskName);
     if (!file) return;
@@ -1725,7 +1819,23 @@ export class GanttView extends ItemView {
     await writeField(this.app, file.path, k.start, today);
     await writeField(this.app, file.path, k.end, today);
     await this.refresh();
-    await this.openTaskInSidebar(file.path);
+    this.startInlineEdit(file.path);
+  }
+
+  private async createSubtask(parentPath: string): Promise<void> {
+    const parentFolder = this.taskFolder(parentPath);
+    const file = await createTask(this.app, parentFolder, tr().newTaskName);
+    if (!file) return;
+    const k = this.plugin.settings.keys;
+    const today = dayToStr(todayIndex());
+    await writeField(this.app, file.path, k.start, today);
+    await writeField(this.app, file.path, k.end, today);
+    const parentFile = this.app.vault.getAbstractFileByPath(parentPath);
+    if (parentFile instanceof TFile) {
+      await writeField(this.app, file.path, k.parent, this.app.fileManager.generateMarkdownLink(parentFile, file.path));
+    }
+    await this.refresh();
+    this.startInlineEdit(file.path);
   }
 
   // ----- ドラッグ＆ドロップ（フォルダへ＝親解除して移動／タスクへ＝サブタスク化）-----
