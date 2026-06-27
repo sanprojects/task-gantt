@@ -61,6 +61,10 @@ export interface GanttViewState {
   showEmptyFolders?: boolean;
   rollup?: boolean;
   zoom?: ZoomMode;
+  // 手動（ホイール）ズーム中のみ保存：連続倍率と左端の日付。プリセット/Fit のときは保存しない。
+  // saved only during a manual (wheel) zoom: the free px/day and the left-edge day. Not stored for presets/Fit.
+  customPpd?: number | null;
+  scrollDay?: number;
 }
 
 export const VIEW_TYPE_GANTT = "task-gantt-view";

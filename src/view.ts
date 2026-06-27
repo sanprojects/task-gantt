@@ -1,4 +1,4 @@
-import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment, MarkdownRenderer } from "obsidian";
+import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import { WheelGestureRouter } from "./wheelGesture";
@@ -12,14 +12,11 @@ import {
   writeDates,
   combineDateTime,
   writeField,
-  writeBody,
   renameTask,
   deleteTask,
   addTag,
-  removeTag,
   addDependency,
   removeDependency,
-  readBody,
   anchorStart,
   anchorEnd,
 } from "./model";
@@ -128,11 +125,16 @@ export class GanttView extends ItemView {
 
   // Fit モードでペイン幅に追従するための再描画タイマー / debounce timer to re-fit in Fit mode
   private fitTimer: number | null = null;
+  private lastRenderWidth = 0; // 直近に描画したときのペイン幅。タブ復帰（幅不変）での無駄な再描画を避ける / pane width at last render; skips a needless rerender when returning to the tab (width unchanged)
+  private renderPending = false; // 非表示中に保留した描画があるか（表示復帰時に onResize が flush）/ a render deferred while hidden, flushed by onResize on re-show
+  private zoomBtns = new Map<ZoomMode, HTMLButtonElement>(); // ズーム切替ボタン。手動ズーム時にハイライトを外すため参照を保持 / zoom buttons; kept so the active highlight can be cleared on manual zoom
+  private scrollAnchorDay: number | null = null; // 直近のタイムライン左端の日付（getState のフォールバック）/ last timeline left-edge day (getState fallback when the DOM is gone)
+  private pendingScrollDay: number | null = null; // 再読込から復元する左端の日付（次の rerender で適用）/ left-edge day to restore from a reload (applied on the next rerender)
 
   // DOM 参照 / DOM refs
   private tbodyEl!: HTMLElement;
   private gridHost!: HTMLElement;
-  private detailEl!: HTMLElement;
+  private noteLeaf: WorkspaceLeaf | null = null; // タスクのノートを表示する右サイドバーの使い回しリーフ / reused right-sidebar leaf showing the task note
   private undoBtn: HTMLButtonElement | null = null;
   private projectProgressEl: HTMLElement | null = null; // ツールバー右の全体進捗表示 / overall-progress readout on the right of the toolbar
 
@@ -155,7 +157,7 @@ export class GanttView extends ItemView {
 
   // スコープ＋表示オプション/フィルタを状態として保存/復元（再読込・再起動をまたぐ）/ persist scope + view options/filters (across reloads/restarts)
   getState(): Record<string, unknown> {
-    return {
+    const s: Record<string, unknown> = {
       folder: this.folder,
       colorBy: this.colorBy,
       groupBy: this.groupBy,
@@ -167,6 +169,21 @@ export class GanttView extends ItemView {
       rollup: this.rollup,
       zoom: this.zoom,
     };
+    // 手動（ホイール）ズーム中のみ倍率と左端位置を保存。プリセット/Fit は保存せず、再読込で再計算/再フィットさせる。
+    // persist the free scale + left-edge day only during a manual (wheel) zoom; presets/Fit are recomputed/re-fit on reload.
+    if (this.customPpd != null) {
+      s.customPpd = this.customPpd;
+      const anchor = this.currentAnchorDay();
+      if (anchor != null) s.scrollDay = anchor;
+    }
+    return s;
+  }
+
+  // タイムライン左端の（小数）日付。再読込でスクロール位置を復元するための基準 / fractional day at the timeline's left edge, used to restore scroll across reloads
+  private currentAnchorDay(): number | null {
+    const main = this.gridHost?.querySelector<HTMLElement>(".ogantt-main");
+    if (main && this.ppd > 0) return this.range.min + main.scrollLeft / this.ppd;
+    return this.scrollAnchorDay; // DOM が無い（非表示/遅延）ときは直近のキャッシュ / fall back to the cached value when there's no DOM (hidden/deferred)
   }
   async setState(state: GanttViewState, result: ViewStateResult): Promise<void> {
     if (state && typeof state.folder === "string") this.folder = state.folder;
@@ -179,6 +196,10 @@ export class GanttView extends ItemView {
     if (typeof state?.showEmptyFolders === "boolean") this.showEmptyFolders = state.showEmptyFolders;
     if (typeof state?.rollup === "boolean") this.rollup = state.rollup;
     if (state?.zoom) this.zoom = state.zoom;
+    // 手動ズーム倍率と左端位置の復元。プリセット選択時は customPpd を持たない（null）＝位置も復元しない。
+    // restore the manual-zoom scale and left-edge day; a preset selection carries no customPpd (null) → no position restore either.
+    this.customPpd = typeof state?.customPpd === "number" ? state.customPpd : null;
+    this.pendingScrollDay = this.customPpd != null && typeof state?.scrollDay === "number" ? state.scrollDay : null;
     await super.setState(state, result);
     if (this.gridHost) await this.refresh();
   }
@@ -215,14 +236,21 @@ export class GanttView extends ItemView {
   // Obsidian がペイン/ウィンドウのリサイズ時に呼ぶフック。Fit のみ再描画（デバウンス）
   // Obsidian calls this on pane/window resize; re-fit in Fit mode only (debounced)
   onResize(): void {
+    const w = this.gridHost?.clientWidth ?? 0;
+    if (w === 0) return; // まだ非表示 / still hidden
+    // 非表示中に保留した描画があれば、表示に戻ったここで一度だけ実行 / flush a render that was deferred while hidden
+    if (this.renderPending) { this.rerender(); return; }
     // ホイールズームで上書き中（customPpd）は再フィットしない＝再描画でスクロール位置を潰さない
     // once a wheel zoom overrides Fit (customPpd set), don't re-fit: a rerender would reset scrollLeft
     if (this.zoom !== "Fit" || this.customPpd != null) return;
+    // 幅が前回描画時と同じ＝ペインが再表示されただけ（タブ復帰）。再描画しない＝内容のフルリロードを防ぐ。
+    // same width as the last render = the pane was merely re-shown (tab return); skip the rerender to avoid a full content reload
+    if (w === this.lastRenderWidth) return;
     if (this.fitTimer != null) window.clearTimeout(this.fitTimer);
     this.fitTimer = window.setTimeout(() => this.rerender(), 80);
   }
 
-  // ツールバーと詳細パネルは永続化、再描画はガント部だけ / persistent toolbar + detail; only the grid re-renders
+  // ツールバーは永続化、再描画はガント部だけ / persistent toolbar; only the grid re-renders
   private buildSkeleton(): void {
     const root = this.contentEl;
     root.empty();
@@ -234,28 +262,6 @@ export class GanttView extends ItemView {
     // vertical wheel / two-finger up-down swipe zooms smoothly, anchored under the cursor (horizontal swipe still scrolls)
     // passive:false で登録しないと preventDefault が無視され縦スクロールを止められない / non-passive so preventDefault can cancel the scroll
     this.registerDomEvent(this.gridHost, "wheel", (e: WheelEvent) => this.onWheelZoom(e), { passive: false });
-    this.detailEl = root.createDiv({ cls: "ogantt-detail" });
-    // 詳細パネルの外側（ビュー内のどこか）をクリックしたら閉じる。キャプチャ段階で閉じることで、
-    // 行クリック等の「開く」ハンドラ（バブリング段階で実行）が後から開き直せる＝詳細の切り替えになる。
-    // カレンダー等のポップオーバーは body 直下にあり root を経由しないため閉じない。
-    // clicking anywhere in the view outside the detail panel closes it. Closing in the CAPTURE phase
-    // lets open-handlers (row click etc., which run while bubbling) re-open it afterwards = panel switch.
-    // popovers (calendar etc.) live under body, never pass through root, so they don't close it.
-    root.addEventListener(
-      "click",
-      (ev) => {
-        if (!this.detailEl?.hasClass("is-open")) return;
-        const el = ev.target as Element;
-        if (el.closest(".ogantt-detail")) return;
-        // バー／タスク行は自前で開閉をトグルするので、ここでは閉じない（さもないとトグルが常に開き直す）
-        // bars & task rows toggle the panel themselves, so don't auto-close on those (else toggle always re-opens)
-        if (el.closest(".ogantt-bar-g, .ogantt-tr")) return;
-        this.detailEl.removeClass("is-open");
-        this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
-        this.selectedPath = null;
-      },
-      true
-    );
   }
 
   private refreshTimer: number | null = null;
@@ -290,8 +296,16 @@ export class GanttView extends ItemView {
   rerender(): void {
     this.app.workspace.requestSaveLayout(); // フィルタ等の変更を workspace 状態へ保存（デバウンス済み）/ persist filter changes to workspace state (debounced)
     if (!this.gridHost) this.buildSkeleton();
+    // ペインが非表示（幅0）のときは描画を保留。Fit の ppd は幅依存なので width 0 で描くと壊れる。
+    // 表示に戻った時に onResize が flush する。バックグラウンドのデータ更新で再描画が走っても無駄打ちしない。
+    // defer the draw while the pane is hidden (width 0): Fit's ppd is width-derived, so drawing at 0 is wrong.
+    // onResize flushes it once the pane is shown again; this also no-ops background data-change rerenders.
+    if (this.gridHost.clientWidth === 0) { this.renderPending = true; return; }
+    this.renderPending = false;
+    this.lastRenderWidth = this.gridHost.clientWidth; // 復帰時に幅が同じなら再描画しないための基準 / baseline so a same-width re-show skips the rerender
     this.renderOptions(); // フィルタ/グループ/凡例を最新データで更新 / refresh options + legend
     this.updateProjectProgress(); // 全体進捗を最新データで更新 / refresh overall progress from current data
+    this.updateZoomButtons(); // 手動ズーム時は Fit 等のハイライトを外す / drop the preset highlight while a manual zoom is active
     const view = this.processTasks(); // フィルタ＋グループ適用後 / after filter + group remap
     const compare = this.taskComparator();
     if (this.flat) {
@@ -324,9 +338,14 @@ export class GanttView extends ItemView {
     // 端に近づいたら範囲を継ぎ足す＝無限スクロール / extend the range near the edges = endless scroll
     main.addEventListener("scroll", () => this.onTimelineScroll(main), { passive: true });
     this.renderGrid(main);
-    // スクロール位置：前回値を復元、初回は内容の先頭へ（前後バッファのぶん右に寄せる）
-    // scroll position: restore the previous value; on first render jump to the content start (offset past the leading buffer)
-    main.scrollLeft = prevScroll ?? Math.max(0, (this.contentRange.min - this.range.min) * this.ppd);
+    // スクロール位置の優先順位：①再読込からの復元（左端の日付）②再描画前の値 ③初回は内容の先頭へ。
+    // scroll position priority: (1) restore from a reload (left-edge day), (2) the pre-rerender value, (3) content start on first render.
+    if (this.pendingScrollDay != null) {
+      main.scrollLeft = Math.max(0, (this.pendingScrollDay - this.range.min) * this.ppd);
+      this.pendingScrollDay = null; // 一度だけ適用 / apply once
+    } else {
+      main.scrollLeft = prevScroll ?? Math.max(0, (this.contentRange.min - this.range.min) * this.ppd);
+    }
     this.pinTableColumn(main); // 初期スクロール位置でも左表を即固定（scroll イベント前）/ pin the left table at the initial position too (before any scroll event)
   }
 
@@ -382,6 +401,7 @@ export class GanttView extends ItemView {
   // 端に近づいたら範囲を継ぎ足して無限スクロールにする / extend the range near an edge for endless scrolling
   private onTimelineScroll(main: HTMLElement): void {
     this.pinTableColumn(main); // まず左表を追従させる / keep the left table pinned first
+    if (this.ppd > 0) this.scrollAnchorDay = this.range.min + main.scrollLeft / this.ppd; // 左端の日付をキャッシュ（再読込での復元用）/ cache the left-edge day for restore across reloads
     if (this.extending) return;
     if (this.zoom === "Fit" && this.customPpd == null) return; // Fit は全体表示なので拡張しない / Fit shows everything; nothing to extend
     const threshold = main.clientWidth; // 1画面ぶん手前で継ぎ足す / extend one viewport before the edge
@@ -432,7 +452,24 @@ export class GanttView extends ItemView {
     if (axis === "x") {
       // 横スワイプ＝タイムライン横スクロールのみ。縦成分は無視 / horizontal swipe scrolls the timeline only; vertical component ignored
       e.preventDefault();
-      main.scrollLeft += e.deltaMode === 1 ? e.deltaX * 16 : e.deltaMode === 2 ? e.deltaX * main.clientWidth : e.deltaX;
+      const dx = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaMode === 2 ? e.deltaX * main.clientWidth : e.deltaX;
+      // Fit 中は全体が収まりスクロール余地が無い。手動で横スワイプしたら Fit を解除し現在の倍率を固定（customPpd）
+      // ＝前後バッファが付いて自由にパンできる。Fit ボタンのハイライトも外れる（rerender 内の updateZoomButtons）。
+      // in Fit everything fits, so there's no room to pan; a manual horizontal swipe exits Fit by pinning the
+      // current scale (customPpd) — buffers get added so the timeline can pan, and the Fit highlight clears.
+      if (this.zoom === "Fit" && this.customPpd == null) {
+        const before = main.scrollLeft;
+        this.customPpd = this.ppd; // 見た目の倍率を維持 / keep the on-screen scale
+        this.rerender();
+        const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+        if (!m) return;
+        // 左バッファぶん内容が右へずれるので補正してから当該スワイプを適用 / left buffer shifts content right: offset, then apply the swipe
+        const leftBuffer = (this.contentRange.min - this.range.min) * this.ppd;
+        m.scrollLeft = before + leftBuffer + dx;
+        this.pinTableColumn(m);
+        return;
+      }
+      main.scrollLeft += dx;
       return;
     }
     // 縦スワイプ＝カーソル下の日付を固定したまま連続ズーム / vertical swipe = smooth zoom anchored under the cursor
@@ -606,17 +643,17 @@ export class GanttView extends ItemView {
     // 今日へスクロール / scroll to today
     const todayBtn = bar.createEl("button", { cls: "ogantt-today-btn", text: tr().today });
     todayBtn.onclick = () => this.scrollToToday();
+    this.zoomBtns.clear();
     (["Day", "Week", "Month", "Fit"] as ZoomMode[]).forEach((z) => {
       const btn = bar.createEl("button", { text: z });
-      if (z === this.zoom) btn.addClass("is-active");
+      this.zoomBtns.set(z, btn);
       btn.onclick = () => {
         this.zoom = z; // ppd は rerender 内の computePpd() が決める / ppd is set by computePpd() in rerender
         this.customPpd = null; // モードを選んだらホイールズームの上書きを解除 / picking a mode drops the wheel-zoom override
-        bar.querySelectorAll("button.is-active").forEach((b) => b.removeClass("is-active"));
-        btn.addClass("is-active");
-        void this.refresh();
+        void this.refresh(); // refresh→rerender→updateZoomButtons がハイライトを更新 / the rerender refreshes the active highlight
       };
     });
+    this.updateZoomButtons();
     // 取り消しボタン / undo button
     const undo = bar.createEl("button");
     setIcon(undo, "undo-2");
@@ -640,6 +677,12 @@ export class GanttView extends ItemView {
     prog.createSpan({ cls: "ogantt-project-progress-val" });
     this.projectProgressEl = prog;
     this.updateProjectProgress();
+  }
+
+  // ズームボタンの選択ハイライトを現在状態に同期。手動ズーム（customPpd）中はどのプリセットも非アクティブ
+  // sync the zoom buttons' active highlight; while a manual zoom (customPpd) is active, no preset is highlighted
+  private updateZoomButtons(): void {
+    this.zoomBtns.forEach((btn, z) => btn.toggleClass("is-active", this.customPpd == null && z === this.zoom));
   }
 
   // タスクの期間（日数。日付が無ければ 0＝重み無し）/ a task's span in days (0 = no dates → no weight)
@@ -1672,8 +1715,8 @@ export class GanttView extends ItemView {
   }
 
   // ----- 新規タスク作成 / create a new task -----
-  // 今のフォルダに 1 日タスク（開始=終了=今日）を作り、詳細パネルを開いて命名を促す
-  // create a 1-day task (start = end = today) in the current folder, then open the panel to name it
+  // 今のフォルダに 1 日タスク（開始=終了=今日）を作り、サイドバーのネイティブ表示で開く（命名はノートのリネームで）
+  // create a 1-day task (start = end = today) in the current folder, then open it in the native sidebar view (rename via the note)
   private async createNewTask(): Promise<void> {
     const file = await createTask(this.app, this.folder, tr().newTaskName);
     if (!file) return;
@@ -1682,7 +1725,7 @@ export class GanttView extends ItemView {
     await writeField(this.app, file.path, k.start, today);
     await writeField(this.app, file.path, k.end, today);
     await this.refresh();
-    await this.openDetail(file.path, true);
+    await this.openTaskInSidebar(file.path);
   }
 
   // ----- ドラッグ＆ドロップ（フォルダへ＝親解除して移動／タスクへ＝サブタスク化）-----
@@ -1752,216 +1795,46 @@ export class GanttView extends ItemView {
     this.rerender();
   }
 
-  // 同じタスクをもう一度クリック＝閉じる、それ以外＝開く（横の詳細パネルのトグル）
-  // click the same task again = close; otherwise open (toggle the side detail panel)
-  private toggleDetail(path: string): void {
-    if (this.detailEl?.hasClass("is-open") && this.selectedPath === path) {
-      this.detailEl.removeClass("is-open");
-      this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
-      this.selectedPath = null;
-      return;
-    }
-    void this.openDetail(path);
-  }
-
-  // バー／行のシングルクリック＝詳細パネルをトグル（開く/閉じる）。タイマーなし＝開閉とも即反応。
-  // ダブルクリックの2回目以降（ev.detail > 1）は無視＝二重トグルでチラつかせない。ノートは dblclick 側で開く。
-  // single click on a bar/row = toggle the detail panel (open/close), instantly — no timer either way.
-  // ignore the 2nd+ click of a double (ev.detail > 1) so it doesn't double-toggle/flicker; the dblclick
-  // handler opens the note.
+  // シングルクリック＝そのタスクのノートを右サイドバーで開く（ネイティブ表示）。
+  // ダブルクリックの2回目以降（ev.detail > 1）は無視。ノートのフル編集は dblclick 側でメインタブに開く。
+  // single click = open the task's note in the right sidebar (native view).
+  // ignore the 2nd+ click of a double (ev.detail > 1); full editing opens in a main tab via the dblclick handler.
   private activateTask(path: string, ev: MouseEvent): void {
     if (ev.detail > 1) return;
-    this.toggleDetail(path);
+    void this.openTaskInSidebar(path);
+  }
+
+  // タスクのノートを右サイドバーの 1 枚のリーフで開く（毎回使い回す＝ネイティブのファイルナビゲーション風）
+  // open the task's note in a single, reused right-sidebar leaf — like native file navigation, no tab pile-up
+  private async openTaskInSidebar(path: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    if (this.noteLeaf && !this.isLeafAttached(this.noteLeaf)) this.noteLeaf = null; // 閉じられていたら作り直す / recreate if the user closed it
+    const leaf = this.noteLeaf ?? this.app.workspace.getRightLeaf(false);
+    if (!leaf) return;
+    this.noteLeaf = leaf;
+    await leaf.openFile(file, { active: false }); // フォーカスは Gantt に残す / keep focus on the Gantt
+    void this.app.workspace.revealLeaf(leaf); // サイドバーが畳まれていたら開く / uncollapse the sidebar if it's collapsed
+    this.markSelected(path);
+  }
+
+  // そのリーフがまだワークスペースに存在するか / whether the leaf is still attached to the workspace
+  private isLeafAttached(leaf: WorkspaceLeaf): boolean {
+    let found = false;
+    this.app.workspace.iterateAllLeaves((l) => { if (l === leaf) found = true; });
+    return found;
+  }
+
+  // 選択行のハイライトを更新（サイドバーに表示中のタスクを示す）/ update the selected-row highlight (marks the task shown in the sidebar)
+  private markSelected(path: string): void {
+    this.selectedPath = path;
+    this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
+    this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`)?.addClass("is-selected");
   }
 
   // ダブルクリック＝ノートを新規タブで開く / double click = open the note in a new tab
   private openTaskNote(path: string): void {
     void this.app.workspace.openLinkText(path, "", "tab");
-  }
-
-  // ----- 詳細パネル（編集モード）/ editable detail slide-over -----
-  private async openDetail(path: string, focusTitle = false): Promise<void> {
-    this.selectedPath = path;
-    const t = this.tasks.find((x) => x.path === path);
-    if (!t) return;
-    // 選択行ハイライト更新 / refresh selection highlight
-    this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((el) => el.removeClass("is-selected"));
-    this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`)?.addClass("is-selected");
-
-    const k = this.plugin.settings.keys;
-    const d = this.detailEl;
-    d.empty();
-    d.addClass("is-open");
-    d.style.width = `${this.plugin.settings.detailWidth}px`;
-
-    // 左端の幅リサイズハンドル / left-edge width resize handle
-    const resizer = d.createDiv({ cls: "ogantt-detail-resizer" });
-    this.attachResize(resizer, d);
-
-    // ヘッダー: タイトル＝ファイル名（編集でリネーム）/ header: title input renames the file
-    const header = d.createDiv({ cls: "ogantt-detail-head" });
-    const titleInput = header.createEl("input", { cls: "ogantt-detail-title", type: "text" });
-    titleInput.value = t.name;
-    titleInput.addEventListener("change", () => void (async () => {
-      const np = await renameTask(this.app, this.selectedPath!, titleInput.value);
-      if (np) this.selectedPath = np;
-      await this.refresh();
-    })());
-    // 新規作成直後は名前を選択状態にして即リネームできるように / select the name right after creation
-    if (focusTitle) window.setTimeout(() => { titleInput.focus(); titleInput.select(); }, 0);
-    const openBtn = header.createEl("button", { cls: "clickable-icon" });
-    setIcon(openBtn, "external-link");
-    openBtn.setAttr("aria-label", tr().openAsNote);
-    openBtn.onclick = () => void this.app.workspace.openLinkText(this.selectedPath!, "", true);
-    // ゴミ箱アイコン＝削除メニュー / trash icon = delete menu
-    const delBtn = header.createEl("button", { cls: "clickable-icon" });
-    setIcon(delBtn, "trash-2");
-    delBtn.setAttr("aria-label", tr().menuDelete);
-    delBtn.onclick = (e) => {
-      const m = new Menu();
-      m.addItem((i) => i.setTitle(tr().menuDelete).setIcon("trash-2").onClick(() => {
-        if (this.selectedPath) this.confirmDelete(this.selectedPath);
-      }));
-      m.showAtMouseEvent(e);
-    };
-    const closeBtn = header.createEl("button", { cls: "clickable-icon" });
-    setIcon(closeBtn, "x");
-    closeBtn.onclick = () => d.removeClass("is-open");
-
-    const meta = d.createDiv({ cls: "ogantt-detail-meta" });
-    const fieldRow = (label: string): HTMLElement => {
-      const r = meta.createDiv({ cls: "ogantt-detail-row" });
-      r.createSpan({ cls: "ogantt-detail-label", text: label });
-      return r.createDiv({ cls: "ogantt-detail-field" });
-    };
-
-    // 開始・終了を1つのカレンダーで範囲指定（ClickUp 風・横並び・各×でクリア）
-    // start & end via one range calendar (ClickUp-style: side by side, each clearable with ×)
-    this.buildDates(meta, t);
-
-    // ステータス / status
-    const statusSel = fieldRow(tr().fieldStatus).createEl("select");
-    statusSel.createEl("option", { text: "—", value: "" });
-    for (const s of this.plugin.settings.statuses) {
-      const opt = statusSel.createEl("option", { text: s.label, value: s.id });
-      if (s.id === t.status) opt.selected = true;
-    }
-    statusSel.addEventListener("change", () => void this.saveField(k.status, statusSel.value));
-
-    // 担当 / assignee
-    const asgIn = fieldRow(tr().fieldAssignee).createEl("input", { type: "text" });
-    asgIn.value = t.assignee ?? "";
-    asgIn.addEventListener("change", () => void this.saveField(k.assignee, asgIn.value));
-
-    // タグ（多値・チップ＋×で削除、入力＋Enterで追加。付与は D&D も可）/ tags: chips with × to remove, input+Enter to add (also via drag)
-    const tagField = fieldRow(tr().fieldTags);
-    tagField.addClass("ogantt-tags-field");
-    for (const tag of t.tags) {
-      const chip = tagField.createSpan({ cls: "ogantt-tag-chip" });
-      this.paintTagChip(chip, tag);
-      chip.createSpan({ text: tag });
-      const x = chip.createEl("button", { cls: "ogantt-date-x clickable-icon" });
-      setIcon(x, "x");
-      x.setAttr("aria-label", tr().clearDate);
-      x.addEventListener("click", () => void (async () => {
-        const path = this.selectedPath;
-        if (!path) return;
-        await removeTag(this.app, path, tag);
-        // 背景 refresh が this.tasks を作り替えるので、クロージャの t ではなく最新を引き直して更新
-        // a background refresh may rebuild this.tasks, so look up the live task (not the closure's t)
-        const live = this.tasks.find((x) => x.path === path);
-        if (live) live.tags = live.tags.filter((y) => y !== tag);
-        this.rerender();
-        if (this.selectedPath) await this.openDetail(this.selectedPath); // パネルを再描画 / refresh the panel
-      })());
-    }
-    const tagAdd = tagField.createEl("input", { cls: "ogantt-tag-add", type: "text" });
-    tagAdd.placeholder = tr().addTagPlaceholder;
-    tagAdd.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tagAdd.blur(); } });
-    tagAdd.addEventListener("change", () => void (async () => {
-      const v = tagAdd.value.trim().replace(/^#/, "");
-      const path = this.selectedPath;
-      if (!v || !path) return;
-      await addTag(this.app, path, v);
-      // 最新オブジェクトを引き直してメモリ更新→即再描画 / look up the live task, update in-memory, re-render
-      const live = this.tasks.find((x) => x.path === path);
-      if (live && !live.tags.includes(v)) live.tags.push(v);
-      this.rerender();
-      if (this.selectedPath) await this.openDetail(this.selectedPath); // パネルを再描画 / refresh the panel
-    })());
-
-    // 親タスク（ある場合のみ・チップ＋×で解除。設定は D&D が主）/ parent task (shown when set; × detaches. set via drag)
-    if (t.parent) {
-      const pf = fieldRow(tr().fieldParent);
-      const parentTask = this.tasks.find((x) => x.path === t.parent);
-      const chip = pf.createSpan({ cls: "ogantt-parent-chip" });
-      chip.createSpan({ text: parentTask?.name ?? t.parent });
-      const x = chip.createEl("button", { cls: "ogantt-date-x clickable-icon" });
-      setIcon(x, "x");
-      x.setAttr("aria-label", tr().clearDate);
-      x.addEventListener("click", () => void (async () => {
-        if (!this.selectedPath) return;
-        await this.reparentTo(this.selectedPath, this.taskFolder(this.selectedPath), null); // 親を解除＝トップレベルへ / detach
-        if (this.selectedPath) await this.openDetail(this.selectedPath); // パネルを再描画 / refresh the panel
-      })());
-    }
-
-    // 進捗 / progress（スライダー＋%表示。ドラッグ中は表示のみ更新、離したら保存＝バーに反映）
-    // progress slider + % label; updates the label while dragging, saves on release (reflected in the bar)
-    const progField = fieldRow(tr().fieldProgress);
-    progField.addClass("ogantt-progress-field");
-    const progRange = progField.createEl("input", { type: "range" });
-    progRange.min = "0";
-    progRange.max = "100";
-    progRange.step = "5";
-    progRange.value = String(t.progress ?? 0);
-    const progVal = progField.createSpan({ cls: "ogantt-progress-val", text: `${t.progress ?? 0}%` });
-    progRange.addEventListener("input", () => progVal.setText(`${progRange.value}%`));
-    progRange.addEventListener("change", () => void (async () => {
-      if (!this.selectedPath) return;
-      // 0% は未設定として削除、それ以外は数値で保存 / drop at 0% (unset), otherwise store the number
-      const n = Number(progRange.value);
-      await writeField(this.app, this.selectedPath, k.progress, n > 0 ? n : undefined);
-      await this.refresh();
-    })());
-
-    // 本文 / body：通常はMarkdownレンダリング表示、クリックで編集、フォーカスを外したら保存して再描画
-    // body: rendered markdown by default; click to edit in the textarea; on blur, save and re-render
-    d.createEl("div", { cls: "ogantt-detail-label", text: tr().fieldBody });
-    const preview = d.createDiv({ cls: "ogantt-detail-body-view markdown-rendered" });
-    const bodyArea = d.createEl("textarea", { cls: "ogantt-detail-body-edit" });
-    bodyArea.hide();
-    let raw = await readBody(this.app, t.path);
-    const renderPreview = async () => {
-      preview.empty();
-      if (raw.trim()) await MarkdownRenderer.render(this.app, raw, preview, t.path, this);
-      // 空のときも min-height（CSS）でクリック領域を確保 / keep a clickable area when empty (min-height via CSS)
-    };
-    const autosize = () => {
-      bodyArea.setCssStyles({ height: "auto" });
-      bodyArea.setCssStyles({ height: `${bodyArea.scrollHeight + 2}px` });
-    };
-    // プレビュー→編集（リンク等のクリックはそのまま通す）/ preview → edit (let link clicks pass through)
-    preview.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest("a")) return;
-      bodyArea.value = raw;
-      preview.hide();
-      bodyArea.show();
-      autosize();
-      bodyArea.focus();
-    });
-    bodyArea.addEventListener("input", autosize);
-    // 編集→保存→プレビューへ戻す / edit → save → back to preview
-    bodyArea.addEventListener("blur", () => void (async () => {
-      if (bodyArea.value !== raw) {
-        raw = bodyArea.value;
-        await writeBody(this.app, this.selectedPath!, raw);
-      }
-      bodyArea.hide();
-      await renderPreview();
-      preview.show();
-    })());
-    await renderPreview();
   }
 
   // 確認ダイアログを挟んでタスクを削除（ゴミ箱へ）/ confirm, then delete the task (to trash)
@@ -1978,11 +1851,8 @@ export class GanttView extends ItemView {
       onConfirm: () => void (async () => {
         const ok = await deleteTask(this.app, path);
         if (!ok) return;
-        // 削除したタスクの詳細が開いていたら閉じる / close the detail panel if it showed the deleted task
-        if (this.selectedPath === path) {
-          this.selectedPath = null;
-          this.detailEl?.removeClass("is-open");
-        }
+        // 削除したタスクが選択中なら選択を解除 / clear the selection if the deleted task was selected
+        if (this.selectedPath === path) this.selectedPath = null;
         new Notice(tr().deletedNotice(t.name));
         await this.refresh();
       })(),
@@ -2406,28 +2276,6 @@ export class GanttView extends ItemView {
 
     activeDocument.addEventListener("pointerdown", onOutside, true);
     activeDocument.addEventListener("keydown", onKey, true);
-  }
-
-  // 詳細パネルの幅をドラッグで変更（幅は記憶）/ drag to resize the detail panel (width persisted)
-  private attachResize(resizer: HTMLElement, panel: HTMLElement): void {
-    resizer.addEventListener("pointerdown", (ev: PointerEvent) => {
-      ev.preventDefault();
-      resizer.setPointerCapture(ev.pointerId);
-      const board = this.contentEl.getBoundingClientRect();
-      const onMove = (e: PointerEvent) => {
-        const w = Math.max(280, Math.min(board.width - 120, board.right - e.clientX));
-        panel.style.width = `${w}px`;
-      };
-      const onUp = () => void (async () => {
-        resizer.releasePointerCapture(ev.pointerId);
-        resizer.removeEventListener("pointermove", onMove);
-        resizer.removeEventListener("pointerup", onUp);
-        this.plugin.settings.detailWidth = parseInt(panel.style.width, 10) || 380;
-        await this.plugin.saveData(this.plugin.settings);
-      })();
-      resizer.addEventListener("pointermove", onMove);
-      resizer.addEventListener("pointerup", onUp);
-    });
   }
 
   // SVG 要素生成ヘルパー / SVG element helper
