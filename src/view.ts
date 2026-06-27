@@ -45,6 +45,7 @@ import {
   COLUMN_WIDTHS,
   MAX_INDENT_DEPTH,
 } from "./viewConstants";
+import { hashColor, tagColor, folderColor, paintTagChip } from "./color";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -58,26 +59,6 @@ function scrollbarWidth(): number {
   cachedScrollbarW = probe.offsetWidth - probe.clientWidth;
   probe.remove();
   return cachedScrollbarW;
-}
-
-// HSL → #rrggbb（カラーピッカーの初期値に hex が要るため）/ HSL → hex (color inputs need hex)
-function hslToHex(h: number, s: number, l: number): string {
-  s /= 100;
-  l /= 100;
-  const k = (n: number) => (n + h / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const c = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return Math.round(255 * c).toString(16).padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-// 名前から安定した色を生成（担当者/タグ/フォルダ共通・同じ名前は常に同じ色）/ deterministic color from any name (assignee/tag/folder)
-function hashColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return hslToHex(h, 55, 55);
 }
 
 export class GanttView extends ItemView {
@@ -858,21 +839,6 @@ export class GanttView extends ItemView {
     }
   }
 
-  // タグ/フォルダの色（手動上書きがあればそれ、無ければ名前ハッシュで自動生成）/ tag/folder color (manual override, else auto from name)
-  private tagColor(tag: string): string {
-    return this.plugin.settings.tagColors.find((c) => c.name === tag)?.color || hashColor(tag);
-  }
-  private folderColor(name: string): string {
-    return this.plugin.settings.folderColors.find((c) => c.name === name)?.color || hashColor(name);
-  }
-  // タグチップに色を塗る（枠＋淡い背景＋文字色。テーブル列/詳細パネル共通）/ paint a tag chip (border + faint bg + text)
-  private paintTagChip(chip: HTMLElement, tag: string): void {
-    const c = this.tagColor(tag);
-    chip.style.borderColor = c;
-    chip.style.color = c;
-    chip.style.background = `color-mix(in srgb, ${c} 14%, transparent)`;
-  }
-
   // タグ/フォルダ色の上書きを設定（color=null でリセット＝自動へ）/ set or clear a tag/folder color override (null = reset to auto)
   private setColorOverride(kind: "tag" | "folder", name: string, color: string | null): void {
     const arr = kind === "tag" ? this.plugin.settings.tagColors : this.plugin.settings.folderColors;
@@ -890,7 +856,7 @@ export class GanttView extends ItemView {
 
   // 右クリックの色メニュー（変更＝ネイティブピッカー／リセット＝自動）/ right-click color menu (change → native picker; reset → auto)
   private openColorMenu(e: MouseEvent, kind: "tag" | "folder", name: string): void {
-    const current = kind === "tag" ? this.tagColor(name) : this.folderColor(name);
+    const current = kind === "tag" ? tagColor(this.plugin.settings, name) : folderColor(this.plugin.settings, name);
     const m = new Menu();
     m.addItem((i) => i.setTitle(tr().menuChangeColor).setIcon("palette").onClick(() => {
       // 隠し input[type=color] を生成してネイティブピッカーを開く / spawn a hidden color input to open the native picker
@@ -1101,8 +1067,8 @@ export class GanttView extends ItemView {
         setIcon(ic, this.groupBy === "tag" ? "tag" : isCollapsed ? "folder" : "folder-open");
         // 見出しアイコンに色（フォルダ＝フォルダ色、タグ＝タグ色。(なし) は既定色のまま）
         // tint the heading icon (folder color / tag color; leave the (none) group default)
-        if (this.groupBy === "folder" && row.key != null) ic.style.color = this.folderColor(row.group);
-        else if (this.groupBy === "tag" && row.group !== strings.noneLabel) ic.style.color = this.tagColor(row.group);
+        if (this.groupBy === "folder" && row.key != null) ic.style.color = folderColor(this.plugin.settings, row.group);
+        else if (this.groupBy === "tag" && row.group !== strings.noneLabel) ic.style.color = tagColor(this.plugin.settings, row.group);
         g.createSpan({ text: row.group });
         // 見出しを右クリック＝色を変更（フォルダ／タグ。(なし) は除く）/ right-click a heading to change its color
         if (this.groupBy === "folder" && row.key != null) {
@@ -2215,7 +2181,7 @@ export class GanttView extends ItemView {
         td.addClass("ogantt-td-tags");
         for (const tag of t.tags) {
           const chip = td.createSpan({ cls: "ogantt-tag-chip", text: tag });
-          this.paintTagChip(chip, tag);
+          paintTagChip(this.plugin.settings, chip, tag);
           // タグチップを右クリック＝色を変更 / right-click a tag chip to change its color
           chip.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.openColorMenu(e, "tag", tag); });
         }
