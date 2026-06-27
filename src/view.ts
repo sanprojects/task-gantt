@@ -29,6 +29,7 @@ import {
   buildTicks,
   todayIndex,
   formatDate,
+  pad2,
 } from "./timeline";
 import { t as tr } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
 import {
@@ -48,6 +49,7 @@ import {
 import { hashColor, tagColor, folderColor, paintTagChip } from "./color";
 import { ConfirmModal } from "./confirmModal";
 import { TextMeasurer, svgEl, drawBarLabel, elbowPath } from "./svg";
+import { openPopover } from "./dom/popover";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -584,32 +586,15 @@ export class GanttView extends ItemView {
 
   // 列の出し分けポップオーバー（チェックボックス）/ column-visibility popover (checkboxes)
   private openColumnMenu(anchor: HTMLElement): void {
-    activeDocument.querySelectorAll(".ogantt-colmenu").forEach((e) => e.remove());
-    const menu = activeDocument.body.createDiv({ cls: "ogantt-colmenu" });
-    for (const id of OPTIONAL_COLUMNS) {
-      const item = menu.createEl("label", { cls: "ogantt-colmenu-item" });
-      const cb = item.createEl("input", { type: "checkbox" });
-      cb.checked = (this.plugin.settings.visibleColumns ?? []).includes(id);
-      item.createSpan({ text: this.colLabel(id) });
-      cb.addEventListener("change", () => this.setColumnVisible(id, cb.checked));
-    }
-    const r = anchor.getBoundingClientRect();
-    menu.style.top = `${r.bottom + 4}px`;
-    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
-    const close = () => {
-      menu.remove();
-      activeDocument.removeEventListener("pointerdown", onOutside, true);
-      activeDocument.removeEventListener("keydown", onKey, true);
-    };
-    const onOutside = (e: PointerEvent) => {
-      const tg = e.target as Node;
-      if (!menu.contains(tg) && !anchor.contains(tg)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); }
-    };
-    activeDocument.addEventListener("pointerdown", onOutside, true);
-    activeDocument.addEventListener("keydown", onKey, true);
+    openPopover({ cls: "ogantt-colmenu", anchor }, (menu) => {
+      for (const id of OPTIONAL_COLUMNS) {
+        const item = menu.createEl("label", { cls: "ogantt-colmenu-item" });
+        const cb = item.createEl("input", { type: "checkbox" });
+        cb.checked = (this.plugin.settings.visibleColumns ?? []).includes(id);
+        item.createSpan({ text: this.colLabel(id) });
+        cb.addEventListener("change", () => this.setColumnVisible(id, cb.checked));
+      }
+    });
   }
 
   // ----- ツールバー / toolbar -----
@@ -2091,45 +2076,25 @@ export class GanttView extends ItemView {
   // 時計アイコンのポップアップ：時・分（10分刻み）のドロップダウンで時刻を選ぶ。×で時刻クリア
   // clock-icon popup: pick a time with hour + minute (10-min steps) dropdowns; × clears the time
   private openTimeDropdown(anchor: HTMLElement, current: string, apply: (v: string) => void): void {
-    activeDocument.querySelectorAll(".ogantt-timepick").forEach((e) => e.remove());
-    const pad = (n: number): string => String(n).padStart(2, "0");
-    const pop = activeDocument.body.createDiv({ cls: "ogantt-timepick" });
-    const close = () => {
-      pop.remove();
-      activeDocument.removeEventListener("pointerdown", onOutside, true);
-      activeDocument.removeEventListener("keydown", onKey, true);
-    };
-    const onOutside = (e: PointerEvent) => {
-      const tg = e.target as Node;
-      if (!pop.contains(tg) && !anchor.contains(tg)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); }
-    };
-    activeDocument.addEventListener("pointerdown", onOutside, true);
-    activeDocument.addEventListener("keydown", onKey, true);
-
-    const [ch, cm] = /^\d{2}:\d{2}$/.test(current) ? current.split(":") : ["09", "00"];
-    const hourSel = pop.createEl("select", { cls: "dropdown" });
-    for (let h = 0; h < 24; h++) hourSel.createEl("option", { value: pad(h), text: pad(h) });
-    hourSel.value = ch;
-    pop.createSpan({ text: ":" });
-    const minSel = pop.createEl("select", { cls: "dropdown" });
-    for (let m = 0; m < 60; m += 10) minSel.createEl("option", { value: pad(m), text: pad(m) });
-    // 10分刻みに乗らない既存値（手動入力等）も選べるように / keep an off-grid minute (manual entry) selectable
-    if (!minSel.querySelector(`option[value="${cm}"]`)) minSel.createEl("option", { value: cm, text: cm });
-    minSel.value = cm;
-    const onPick = () => apply(`${hourSel.value}:${minSel.value}`);
-    hourSel.addEventListener("change", onPick);
-    minSel.addEventListener("change", onPick);
-    const clr = pop.createEl("button", { cls: "clickable-icon" });
-    setIcon(clr, "x");
-    clr.setAttr("aria-label", tr().clearDate);
-    clr.onclick = () => { apply(""); close(); };
-
-    const r = anchor.getBoundingClientRect();
-    pop.style.top = `${r.bottom + 4}px`;
-    pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8))}px`;
+    openPopover({ cls: "ogantt-timepick", anchor }, (pop, close) => {
+      const [ch, cm] = /^\d{2}:\d{2}$/.test(current) ? current.split(":") : ["09", "00"];
+      const hourSel = pop.createEl("select", { cls: "dropdown" });
+      for (let h = 0; h < 24; h++) hourSel.createEl("option", { value: pad2(h), text: pad2(h) });
+      hourSel.value = ch;
+      pop.createSpan({ text: ":" });
+      const minSel = pop.createEl("select", { cls: "dropdown" });
+      for (let m = 0; m < 60; m += 10) minSel.createEl("option", { value: pad2(m), text: pad2(m) });
+      // keep an off-grid minute (e.g. manual entry) selectable
+      if (!minSel.querySelector(`option[value="${cm}"]`)) minSel.createEl("option", { value: cm, text: cm });
+      minSel.value = cm;
+      const onPick = () => apply(`${hourSel.value}:${minSel.value}`);
+      hourSel.addEventListener("change", onPick);
+      minSel.addEventListener("change", onPick);
+      const clr = pop.createEl("button", { cls: "clickable-icon" });
+      setIcon(clr, "x");
+      clr.setAttr("aria-label", tr().clearDate);
+      clr.onclick = () => { apply(""); close(); };
+    });
   }
 
   // 非 name 列のセル内容を描画 / fill a non-name cell by column id
@@ -2267,129 +2232,101 @@ export class GanttView extends ItemView {
     repaint: () => void,
     save: () => void | Promise<void>
   ): void {
-    activeDocument.querySelectorAll(".ogantt-cal").forEach((e) => e.remove());
-    const todayStr = dayToStr(todayIndex());
-    const base = state[active] || state.start || state.end || todayStr;
-    let y = parseInt(base.slice(0, 4), 10);
-    let m = parseInt(base.slice(5, 7), 10); // 1-based
-    let act = active; // 次のクリックで設定する端点 / endpoint the next click sets
-    const wk = moment.weekdaysMin(); // ロケールの曜日略称（日曜始まり）/ localized minimal weekday names (Sunday-first)
+    openPopover({ cls: "ogantt-cal", anchor, flip: true }, (cal) => {
+      const todayStr = dayToStr(todayIndex());
+      const base = state[active] || state.start || state.end || todayStr;
+      let y = parseInt(base.slice(0, 4), 10);
+      let m = parseInt(base.slice(5, 7), 10); // 1-based
+      let act = active; // endpoint the next click sets
+      const wk = moment.weekdaysMin(); // localized minimal weekday names (Sunday-first)
+      let mode: "day" | "year" = "day"; // day view or year (12-month) view
+      const months = moment.monthsShort(); // localized short month names
 
-    const cal = activeDocument.body.createDiv({ cls: "ogantt-cal" });
-    const close = () => {
-      cal.remove();
-      activeDocument.removeEventListener("pointerdown", onOutside, true);
-      activeDocument.removeEventListener("keydown", onKey, true);
-    };
-    const onOutside = (e: PointerEvent) => {
-      const tg = e.target as Node;
-      if (!cal.contains(tg) && !anchor.contains(tg)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); }
-    };
-
-    let mode: "day" | "year" = "day"; // 日ビュー / 年（12ヶ月）ビュー / day view or year (12-month) view
-    const months = moment.monthsShort(); // ロケールの月名略称 / localized short month names
-
-    // 端点を1つ設定して交互に切り替え。逆転時は常に「終了=開始」へ補正（開始は変更しない）
-    // set one endpoint, then alternate; on inversion always clamp end = start (never move the start)
-    const pick = (ds: string) => {
-      if (act === "start") {
-        state.start = ds;
-        if (state.end && ds > state.end) state.end = ds; // 終了が前に残ったら追従 / end follows forward
-        act = "end";
-      } else {
-        // 開始より前を選んだら終了=開始 / picking before the start clamps end to the start
-        state.end = state.start && ds < state.start ? state.start : ds;
-        act = "start";
-      }
-      repaint();
-      void save();
-      render();
-    };
-
-    // 日ビュー / day view
-    const renderDay = () => {
-      const head = cal.createDiv({ cls: "ogantt-cal-head" });
-      const prev = head.createEl("button", { cls: "clickable-icon" });
-      setIcon(prev, "chevron-left");
-      prev.onclick = () => { if (--m < 1) { m = 12; y--; } render(); };
-      // タイトルをクリックで年ビューへ / click the title to open the year view
-      const title = head.createEl("button", { cls: "ogantt-cal-title", text: `${y} / ${String(m).padStart(2, "0")}` });
-      title.onclick = () => { mode = "year"; render(); };
-      const next = head.createEl("button", { cls: "clickable-icon" });
-      setIcon(next, "chevron-right");
-      next.onclick = () => { if (++m > 12) { m = 1; y++; } render(); };
-
-      cal.createDiv({ cls: "ogantt-cal-active", text: `▸ ${act === "start" ? tr().fieldStart : tr().fieldDue}` });
-
-      const wkRow = cal.createDiv({ cls: "ogantt-cal-wk" });
-      wk.forEach((w) => wkRow.createSpan({ text: w }));
-
-      const grid = cal.createDiv({ cls: "ogantt-cal-grid" });
-      const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
-      const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      for (let i = 0; i < firstDow; i++) grid.createSpan({ cls: "ogantt-cal-pad" });
-      for (let d = 1; d <= dim; d++) {
-        const ds = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        const cell = grid.createEl("button", { cls: "ogantt-cal-day", text: String(d) });
-        if (ds === todayStr) cell.addClass("is-today");
-        if (ds === state.start) cell.addClass("is-range-start");
-        if (ds === state.end) cell.addClass("is-range-end");
-        if (state.start && state.end && ds > state.start && ds < state.end) cell.addClass("is-in-range");
-        cell.onclick = () => pick(ds);
-      }
-
-      const foot = cal.createDiv({ cls: "ogantt-cal-foot" });
-      const todayBtn = foot.createEl("button", { text: tr().today });
-      todayBtn.onclick = () => {
-        y = parseInt(todayStr.slice(0, 4), 10);
-        m = parseInt(todayStr.slice(5, 7), 10); // 表示も今日の月へ / move the view to today
-        pick(todayStr);
+      // Set one endpoint, then alternate; on inversion always clamp end = start (never move the start).
+      const pick = (ds: string) => {
+        if (act === "start") {
+          state.start = ds;
+          if (state.end && ds > state.end) state.end = ds; // end follows forward
+          act = "end";
+        } else {
+          // picking before the start clamps end to the start
+          state.end = state.start && ds < state.start ? state.start : ds;
+          act = "start";
+        }
+        repaint();
+        void save();
+        render();
       };
-      const clearBtn = foot.createEl("button", { text: tr().clearDate });
-      clearBtn.onclick = () => { state[act] = ""; repaint(); void save(); render(); };
-    };
 
-    // 年ビュー（12ヶ月）/ year view (12 months)
-    const renderYear = () => {
-      const head = cal.createDiv({ cls: "ogantt-cal-head" });
-      const prev = head.createEl("button", { cls: "clickable-icon" });
-      setIcon(prev, "chevron-left");
-      prev.onclick = () => { y--; render(); }; // ← → で年移動 / year nav
-      head.createSpan({ cls: "ogantt-cal-title", text: `${y}` });
-      const next = head.createEl("button", { cls: "clickable-icon" });
-      setIcon(next, "chevron-right");
-      next.onclick = () => { y++; render(); };
+      const renderDay = () => {
+        const head = cal.createDiv({ cls: "ogantt-cal-head" });
+        const prev = head.createEl("button", { cls: "clickable-icon" });
+        setIcon(prev, "chevron-left");
+        prev.onclick = () => { if (--m < 1) { m = 12; y--; } render(); };
+        // click the title to open the year view
+        const title = head.createEl("button", { cls: "ogantt-cal-title", text: `${y} / ${pad2(m)}` });
+        title.onclick = () => { mode = "year"; render(); };
+        const next = head.createEl("button", { cls: "clickable-icon" });
+        setIcon(next, "chevron-right");
+        next.onclick = () => { if (++m > 12) { m = 1; y++; } render(); };
 
-      const grid = cal.createDiv({ cls: "ogantt-cal-months" });
-      for (let mm = 1; mm <= 12; mm++) {
-        const cell = grid.createEl("button", { cls: "ogantt-cal-month", text: months[mm - 1] });
-        if (mm === m) cell.addClass("is-current");
-        const ym = `${y}-${String(mm).padStart(2, "0")}`;
-        if (state.start.startsWith(ym) || state.end.startsWith(ym)) cell.addClass("is-selected"); // 端点を含む月 / months holding an endpoint
-        cell.onclick = () => { m = mm; mode = "day"; render(); };
-      }
-    };
+        cal.createDiv({ cls: "ogantt-cal-active", text: `▸ ${act === "start" ? tr().fieldStart : tr().fieldDue}` });
 
-    const render = () => {
-      cal.empty();
-      if (mode === "year") renderYear();
-      else renderDay();
-    };
-    render();
+        const wkRow = cal.createDiv({ cls: "ogantt-cal-wk" });
+        wk.forEach((w) => wkRow.createSpan({ text: w }));
 
-    // 位置：チップの下（画面外なら上へ反転）/ position below the chip (flip up if it would overflow)
-    const r = anchor.getBoundingClientRect();
-    let top = r.bottom + 4;
-    if (top + cal.offsetHeight > window.innerHeight) top = Math.max(4, r.top - cal.offsetHeight - 4);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - cal.offsetWidth - 8));
-    cal.style.top = `${top}px`;
-    cal.style.left = `${left}px`;
+        const grid = cal.createDiv({ cls: "ogantt-cal-grid" });
+        const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+        const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        for (let i = 0; i < firstDow; i++) grid.createSpan({ cls: "ogantt-cal-pad" });
+        for (let d = 1; d <= dim; d++) {
+          const ds = `${y}-${pad2(m)}-${pad2(d)}`;
+          const cell = grid.createEl("button", { cls: "ogantt-cal-day", text: String(d) });
+          if (ds === todayStr) cell.addClass("is-today");
+          if (ds === state.start) cell.addClass("is-range-start");
+          if (ds === state.end) cell.addClass("is-range-end");
+          if (state.start && state.end && ds > state.start && ds < state.end) cell.addClass("is-in-range");
+          cell.onclick = () => pick(ds);
+        }
 
-    activeDocument.addEventListener("pointerdown", onOutside, true);
-    activeDocument.addEventListener("keydown", onKey, true);
+        const foot = cal.createDiv({ cls: "ogantt-cal-foot" });
+        const todayBtn = foot.createEl("button", { text: tr().today });
+        todayBtn.onclick = () => {
+          y = parseInt(todayStr.slice(0, 4), 10);
+          m = parseInt(todayStr.slice(5, 7), 10); // move the view to today's month
+          pick(todayStr);
+        };
+        const clearBtn = foot.createEl("button", { text: tr().clearDate });
+        clearBtn.onclick = () => { state[act] = ""; repaint(); void save(); render(); };
+      };
+
+      const renderYear = () => {
+        const head = cal.createDiv({ cls: "ogantt-cal-head" });
+        const prev = head.createEl("button", { cls: "clickable-icon" });
+        setIcon(prev, "chevron-left");
+        prev.onclick = () => { y--; render(); }; // ←/→ change the year
+        head.createSpan({ cls: "ogantt-cal-title", text: `${y}` });
+        const next = head.createEl("button", { cls: "clickable-icon" });
+        setIcon(next, "chevron-right");
+        next.onclick = () => { y++; render(); };
+
+        const grid = cal.createDiv({ cls: "ogantt-cal-months" });
+        for (let mm = 1; mm <= 12; mm++) {
+          const cell = grid.createEl("button", { cls: "ogantt-cal-month", text: months[mm - 1] });
+          if (mm === m) cell.addClass("is-current");
+          const ym = `${y}-${pad2(mm)}`;
+          if (state.start.startsWith(ym) || state.end.startsWith(ym)) cell.addClass("is-selected"); // months holding an endpoint
+          cell.onclick = () => { m = mm; mode = "day"; render(); };
+        }
+      };
+
+      const render = () => {
+        cal.empty();
+        if (mode === "year") renderYear();
+        else renderDay();
+      };
+      render();
+    });
   }
 
 }

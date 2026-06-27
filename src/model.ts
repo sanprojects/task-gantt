@@ -1,6 +1,7 @@
 import { App, TFile, TFolder, getAllTags, normalizePath } from "obsidian";
 import { GanttSettings } from "./settings";
 import { Task, Row, Dep, DepType } from "./types";
+import { pad2 } from "./timeline";
 
 // after の生エントリから型と リンクを分離 / split a raw `after` entry into type + link
 function parseDepRaw(raw: string): { type: DepType; link: string } {
@@ -14,7 +15,6 @@ function stripDepType(raw: unknown): string {
   return String(raw).replace(/^\s*(FS|SS|FF)\s*:\s*/i, "");
 }
 
-const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 // 設定タイムゾーンのオフセット（分）。"system" は端末のその時点のオフセット（DST考慮）
 // configured timezone offset in minutes; "system" = device offset at that instant (DST-aware)

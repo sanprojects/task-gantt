@@ -2,6 +2,9 @@ import { ZoomMode, Task, DateFormat } from "./types";
 
 const MS_PER_DAY = 86400000;
 
+// Zero-pad a number to two digits (shared by date/time formatting).
+export const pad2 = (n: number): string => String(n).padStart(2, "0");
+
 // 'YYYY-MM-DD' を UTC の通日番号へ / parse to a UTC day index
 export function dayIndex(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map((x) => parseInt(x, 10));
