@@ -422,6 +422,9 @@ export class GanttView extends ItemView {
     const next = Math.min(MAX_PPD, Math.max(MIN_PPD, this.ppd * Math.exp(-dy * 0.0015)));
     if (next === this.ppd && this.customPpd != null) return; // 端で頭打ち / clamped at a limit
     this.customPpd = next;
+    // rerender は縦スクロール位置を失う。ズームは縦位置を変えないので、再描画前の scrollTop を保持して戻す。
+    // rerender loses the vertical scroll; zoom shouldn't move it, so keep scrollTop and restore it after.
+    const topBefore = main.scrollTop;
     // 1 フレームにつき 1 再描画。最新のカーソル軸でスクロール位置を補正して固定する。
     // one rerender per frame; after it, fix scrollLeft so dayUnder stays under the cursor.
     if (this.wheelRAF) return;
@@ -431,6 +434,7 @@ export class GanttView extends ItemView {
       const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
       if (m) {
         m.scrollLeft = tableW + (dayUnder - this.range.min) * this.ppd - screenX;
+        m.scrollTop = topBefore; // 縦位置を維持＝表が上に飛ばない / keep the vertical position so the table doesn't jump up
         this.pinTableColumn(m); // ズーム後のスクロール位置に合わせて左表を即固定 / re-pin the left table after the zoom adjusts scroll
       }
     });
