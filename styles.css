@@ -587,15 +587,14 @@
   display: block;
   animation: ogantt-detail-in 0.18s ease; /* 開くときだけ右端から展開 / reveal from the right edge on open */
 }
-/* translateX で画面外から滑らせると、変形後の位置が横スクロールを生む。
-   clip-path はレイアウト・スクロールに影響しない純粋な視覚クリップなので、
-   パネルは定位置のまま右端から展開＝スクロールが出ない。
-   sliding in via translateX (off-canvas start) creates a transient horizontal scrollbar;
-   clip-path is a purely visual clip (no layout/scroll impact), so the panel stays put and
-   just reveals from the right edge — no scrollbar appears during the animation. */
+/* translateX で画面外から滑らせると横スクロールが出る。clip-path はスクロールを出さないが
+   GPU 合成されずカクつく。opacity フェードは GPU 合成＝滑らか、かつレイアウト・スクロール非影響。
+   translateX (off-canvas) causes a transient scrollbar; clip-path avoids it but isn't
+   GPU-composited (janky). an opacity fade is GPU-composited (smooth) and touches neither
+   layout nor scroll. */
 @keyframes ogantt-detail-in {
-  from { clip-path: inset(0 0 0 100%); }
-  to { clip-path: inset(0 0 0 0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 /* 左端の幅リサイズハンドル / left-edge resize handle */
 .ogantt-detail-resizer {

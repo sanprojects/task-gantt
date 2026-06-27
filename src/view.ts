@@ -39,8 +39,21 @@ const HEAD_H = 40; // ヘッダー高さ / header height
 const BAR_PAD = 5; // バーの上下余白 / vertical padding inside a row
 const RESIZE_EDGE = 8; // バー端リサイズの当たり幅 / edge-resize hit width
 const MIN_PPD = 2; // Fit 時の最小 1 日幅（これ未満は横スクロール）/ minimum px/day in Fit mode
-const FIT_SCROLLBAR_PAD = 16; // 縦スクロールバー分の余白 / room for the vertical scrollbar
 const FALLBACK_BAR = "#7c8db5"; // ステータス/担当者が未設定のときのバー色 / bar color when status/assignee is unset
+
+// 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
+// Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
+// measure the real vertical scrollbar width once (0 with macOS overlay scrollbars);
+// a fixed pad would otherwise show as a gap where the scrollbar is thin or absent.
+let cachedScrollbarW: number | null = null;
+function scrollbarWidth(): number {
+  if (cachedScrollbarW != null) return cachedScrollbarW;
+  const probe = activeDocument.body.createDiv();
+  probe.setCssStyles({ position: "absolute", visibility: "hidden", overflow: "scroll", width: "60px", height: "60px" });
+  cachedScrollbarW = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return cachedScrollbarW;
+}
 
 // テーブル列の定義 / table column definitions
 // name は常時表示・可変幅(flex)、その他は表示/非表示を切替え・固定幅
@@ -279,7 +292,7 @@ export class GanttView extends ItemView {
   private computePpd(): number {
     if (this.zoom !== "Fit") return pxPerDay(this.zoom);
     const totalDays = Math.max(1, this.range.max - this.range.min + 1);
-    const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - FIT_SCROLLBAR_PAD;
+    const avail = (this.gridHost?.clientWidth ?? 0) - this.tableWidth() - scrollbarWidth();
     if (avail <= 0) return pxPerDay("Week"); // まだレイアウト前 / not laid out yet
     // 端数で割る（floor しない）＝ totalDays*ppd が avail にぴったり一致し、右端に隙間が出ない。
     // MIN_PPD を下回るときだけ最小幅にして横スクロールへ。
@@ -1916,6 +1929,7 @@ export class GanttView extends ItemView {
         td.setText(t.assignee ?? "");
         break;
       case "status": {
+        td.addClass("ogantt-td-status"); // ドットとラベルを縦中央に揃える / vertically center the dot + label
         const s = this.plugin.settings.statuses.find((x) => x.id === t.status);
         if (s) {
           const dot = td.createSpan({ cls: "ogantt-status-dot" });
