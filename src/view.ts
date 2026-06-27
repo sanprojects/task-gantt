@@ -50,6 +50,8 @@ import { hashColor, tagColor, folderColor, paintTagChip } from "./color";
 import { ConfirmModal } from "./confirmModal";
 import { TextMeasurer, svgEl, drawBarLabel, elbowPath } from "./svg";
 import { openPopover } from "./dom/popover";
+import { ViewCtx } from "./render/context";
+import { realignSuccessors } from "./render/depAlign";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -952,6 +954,53 @@ export class GanttView extends ItemView {
     if (this.undoBtn) this.undoBtn.disabled = this.undoStack.length === 0;
   }
 
+  // Build the seam handed to the render/* modules: live getters for mutable state,
+  // bound callbacks for view-owned behavior. Cheap to create (once per render pass).
+  private ctx(): ViewCtx {
+    const self = this;
+    return {
+      app: this.app,
+      plugin: this.plugin,
+      measurer: this.measurer,
+      dragged: this.dragged,
+      get range() { return self.range; },
+      get ppd() { return self.ppd; },
+      get rows() { return self.rows; },
+      get tasks() { return self.tasks; },
+      get zoom() { return self.zoom; },
+      get groupBy() { return self.groupBy; },
+      get colorBy() { return self.colorBy; },
+      get folder() { return self.folder; },
+      get rollup() { return self.rollup; },
+      get collapsed() { return self.collapsed; },
+      get selectedPath() { return self.selectedPath; },
+      visibleColumns: () => this.visibleColumns(),
+      tableWidth: () => this.tableWidth(),
+      colW: (id) => this.colW(id),
+      colLabel: (id) => this.colLabel(id),
+      toggleSort: (id) => this.toggleSort(id),
+      autoFitColumn: (id, nth, th) => this.autoFitColumn(id, nth, th),
+      renderCell: (td, row, id) => this.renderCell(td, row, id),
+      setTbodyEl: (el) => { this.tbodyEl = el; },
+      makeDraggableTask: (row, path) => this.makeDraggableTask(row, path),
+      makeDropTarget: (row, handler) => this.makeDropTarget(row, handler),
+      taskFolder: (path) => this.taskFolder(path),
+      reparentTo: (s, d, p) => this.reparentTo(s, d, p),
+      addTagTo: (s, tag) => this.addTagTo(s, tag),
+      createTaskInFolder: (f) => this.createTaskInFolder(f),
+      createSubtask: (p) => this.createSubtask(p),
+      confirmDelete: (p) => this.confirmDelete(p),
+      openColorMenu: (e, kind, name) => this.openColorMenu(e, kind, name),
+      activateTask: (p, ev) => this.activateTask(p, ev),
+      openTaskNote: (p) => this.openTaskNote(p),
+      openTaskInSidebar: (p) => this.openTaskInSidebar(p),
+      refresh: () => this.refresh(),
+      rerender: () => this.rerender(),
+      pushUndo: (l) => this.pushUndo(l),
+      updateProjectProgress: (o) => this.updateProjectProgress(o),
+    };
+  }
+
   // ----- 表＋タイムラインを 1 つの CSS グリッドで（sticky で行を揃える）-----
   // ----- table + timeline in one CSS grid; sticky heads/left column keep rows aligned -----
   private renderGrid(main: HTMLElement): void {
@@ -1422,98 +1471,13 @@ export class GanttView extends ItemView {
           target.deps = target.deps.filter((dd) => dd.path !== source.path);
           target.deps.push({ path: source.path, type });
           // SS/FF は後続の日付を先行に揃える（連鎖も）/ snap SS/FF successors to the predecessor
-          await this.realignSuccessors(source.path);
+          await realignSuccessors(this.ctx(), source.path);
           this.rerender();
         }
       }
     })();
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onUp);
-  }
-
-  // SS/FF 依存に従って後続の日付を先行に揃える（期間は維持＝バーが移動）
-  // align a successor to its predecessor per SS/FF (duration kept → the bar moves)
-  private async applyAlign(target: Task, pred: Task, type: DepType): Promise<boolean> {
-    // マイルストーンは固定日なので依存で動かさない / milestones are fixed dates: never auto-moved
-    if (target.milestone) return false;
-    const ps = anchorStart(pred);
-    const pe = anchorEnd(pred);
-    let ns: string | undefined;
-    let ne: string | undefined;
-    if (type === "FS") {
-      // 先行の終了の翌日に後続の開始を合わせる / successor starts the day after predecessor's end
-      if (!pe) return false;
-      const startDay = dayIndex(pe) + 1;
-      if (target.milestone) ns = ne = dayToStr(startDay);
-      else {
-        if (!target.start || !target.end) return false;
-        const dur = dayIndex(target.end) - dayIndex(target.start);
-        ns = dayToStr(startDay);
-        ne = dayToStr(startDay + dur);
-      }
-    } else if (type === "SS") {
-      if (!ps) return false;
-      if (target.milestone) ns = ne = ps;
-      else {
-        if (!target.start || !target.end) return false;
-        const dur = dayIndex(target.end) - dayIndex(target.start);
-        ns = ps;
-        ne = dayToStr(dayIndex(ps) + dur);
-      }
-    } else if (type === "FF") {
-      if (!pe) return false;
-      if (target.milestone) ns = ne = pe;
-      else {
-        if (!target.start || !target.end) return false;
-        const dur = dayIndex(target.end) - dayIndex(target.start);
-        ne = pe;
-        ns = dayToStr(dayIndex(pe) - dur);
-      }
-    } else {
-      return false;
-    }
-
-    // 変化が無ければ何もしない / skip if unchanged
-    if (target.milestone) {
-      if (target.end === ne) return false;
-    } else if (target.start === ns && target.end === ne) {
-      return false;
-    }
-    await writeDates(this.app, this.plugin.settings, target.path, ns, ne, target.milestone);
-    // メモリ上も更新して連鎖整列に備える / update in-memory for cascading
-    if (target.milestone) target.end = ne;
-    else {
-      target.start = ns;
-      target.end = ne;
-    }
-    return true;
-  }
-
-  // 指定タスクの SS/FF 後続を整列し、連鎖的に伝播（循環は seen で打ち切り）
-  // realign SS/FF successors of a task, propagating along chains (cycles stopped via `seen`)
-  private async realignSuccessors(rootPath: string): Promise<boolean> {
-    const queue = [rootPath];
-    const seen = new Set<string>();
-    let any = false;
-    let guard = 0;
-    while (queue.length && guard++ < 1000) {
-      const predPath = queue.shift()!;
-      const pred = this.tasks.find((t) => t.path === predPath);
-      if (!pred) continue;
-      for (const succ of this.tasks) {
-        if (succ.path === predPath) continue;
-        const dep = succ.deps.find((dd) => dd.path === predPath);
-        if (!dep) continue;
-        if (await this.applyAlign(succ, pred, dep.type)) {
-          any = true;
-          if (!seen.has(succ.path)) {
-            seen.add(succ.path);
-            queue.push(succ.path);
-          }
-        }
-      }
-    }
-    return any;
   }
 
   private drawDependencies(svg: SVGElement): void {
@@ -1717,7 +1681,7 @@ export class GanttView extends ItemView {
             task.end = neS;
           }
           // SS/FF 後続を連動（メモリ更新＋ディスク書き込み）/ cascade to SS/FF successors
-          await this.realignSuccessors(task.path);
+          await realignSuccessors(this.ctx(), task.path);
           // メモリから即再描画（ディスク再読込前に正しい位置を表示）/ render from memory for instant correct positions
           this.rerender();
         } else {
