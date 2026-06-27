@@ -325,7 +325,11 @@
   height: 14px;
 }
 .ogantt-tr.is-selected {
-  background: var(--background-modifier-hover);
+  background: rgba(128, 128, 128, 0.12);
+}
+.ogantt-row-sel {
+  fill: rgba(128, 128, 128, 0.12);
+  pointer-events: none;
 }
 /* ドラッグ中の行 / row being dragged */
 .ogantt-tr.is-dragging {

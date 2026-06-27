@@ -1171,10 +1171,6 @@ export class GanttView extends ItemView {
               });
             }
             nameTd.createSpan({ cls: "ogantt-task-name-label", text: t.name });
-            nameTd.addEventListener("dblclick", (e) => {
-              e.stopPropagation();
-              this.startInlineEdit(t.path);
-            });
             // タイトル右クリック＝削除メニュー / right-click the title = delete menu
             nameTd.addEventListener("contextmenu", (e) => {
               e.preventDefault();
@@ -1217,6 +1213,21 @@ export class GanttView extends ItemView {
     this.drawBars(svg, handlesLayer);
     this.drawDependencies(svg); // バーの上に描いて矢印を隠さない / on top of bars so arrows stay visible
     svg.appendChild(handlesLayer); // 矢印の上にハンドルを重ねる / handles above arrows
+    // タイムライン上の空白エリアのクリックで行選択＋ノートを開く（バーのクリックは個別に stopPropagation している）
+    // click on empty timeline space = select + open note (bar clicks stopPropagation individually)
+    svg.addEventListener("click", (ev) => {
+      if (ev.detail > 1) return; // dblclick の後に来る click は無視 / skip the click that follows a dblclick
+      const box = svg.getBoundingClientRect();
+      const rowIdx = Math.floor((ev.clientY - box.top) / ROW_H);
+      const row = this.rows[rowIdx];
+      if (row?.kind === "task" && row.task) void this.openTaskInSidebar(row.task.path);
+    });
+    svg.addEventListener("dblclick", (ev) => {
+      const box = svg.getBoundingClientRect();
+      const rowIdx = Math.floor((ev.clientY - box.top) / ROW_H);
+      const row = this.rows[rowIdx];
+      if (row?.kind === "task" && row.task) this.openTaskNote(row.task.path);
+    });
   }
 
   private xOf(dateStr: string): number {
@@ -1224,6 +1235,12 @@ export class GanttView extends ItemView {
   }
 
   private drawGrid(svg: SVGElement, width: number, height: number): void {
+    // 選択行のタイムライン側ハイライト（バーや線より前に追加＝最背面）/ selected-row highlight on the timeline side (added first = behind everything)
+    this.rows.forEach((row, i) => {
+      if (row.kind === "task" && row.task?.path === this.selectedPath) {
+        svg.appendChild(this.svgEl("rect", { x: 0, y: i * ROW_H, width, height: ROW_H, class: "ogantt-row-sel" }));
+      }
+    });
     // 行の区切り / row separators
     this.rows.forEach((row, i) => {
       if (row.kind === "group") {
@@ -1938,8 +1955,20 @@ export class GanttView extends ItemView {
   // 選択行のハイライトを更新（サイドバーに表示中のタスクを示す）/ update the selected-row highlight (marks the task shown in the sidebar)
   private markSelected(path: string): void {
     this.selectedPath = path;
+    // table row
     this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
     this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`)?.addClass("is-selected");
+    // timeline SVG highlight: swap the ogantt-row-sel rect to the newly selected row
+    const svg = this.gridHost?.querySelector<SVGElement>(".ogantt-svg");
+    if (svg) {
+      svg.querySelectorAll(".ogantt-row-sel").forEach((e) => e.remove());
+      const idx = this.rows.findIndex((r) => r.kind === "task" && r.task?.path === path);
+      if (idx >= 0) {
+        const w = (this.range.max - this.range.min + 1) * this.ppd;
+        const rect = this.svgEl("rect", { x: 0, y: idx * ROW_H, width: w, height: ROW_H, class: "ogantt-row-sel" });
+        svg.insertBefore(rect, svg.firstChild); // behind everything else
+      }
+    }
   }
 
   // ダブルクリック＝ノートを新規タブで開く / double click = open the note in a new tab
