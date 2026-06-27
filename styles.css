@@ -246,12 +246,14 @@
 }
 
 .ogantt-corner {
+  /* 縦は sticky で固定。横は CSS グリッドだと sticky がグリッド領域にクランプされ機能しないため JS の transform で固定（pinTableColumn）
+     vertical pin via sticky; horizontal sticky is clamped to the grid area in a CSS grid, so it's pinned by a JS transform (pinTableColumn) */
   position: sticky;
   top: 0;
-  left: 0;
   z-index: 3;
   grid-column: 1;
   grid-row: 1;
+  will-change: transform;
   display: flex;
   align-items: center;
   background: var(--background-secondary);
@@ -287,13 +289,14 @@
   font-size: 0.9em;
 }
 .ogantt-tbody {
-  position: sticky;
-  left: 0;
+  /* 横スクロール追従は JS の transform で固定（grid の sticky-left はグリッド領域にクランプされ効かない）/ pinned horizontally by a JS transform (sticky-left is clamped to the grid area in a grid) */
+  position: relative;
   z-index: 1;
   grid-column: 1;
   grid-row: 2;
   background: var(--background-primary);
   border-right: 1px solid var(--background-modifier-border);
+  will-change: transform;
 }
 .ogantt-tr {
   display: flex;
@@ -926,6 +929,24 @@ button.ogantt-cal-title:hover {
   resize: vertical;
   font-family: var(--font-text);
   line-height: 1.5;
+}
+/* 本文プレビュー（クリックで編集へ）/ rendered body preview (click to edit) */
+.ogantt-detail-body-view {
+  margin-top: 6px;
+  min-height: 160px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: text;
+  line-height: 1.5;
+}
+.ogantt-detail-body-view:hover {
+  background: var(--background-modifier-hover);
+}
+.ogantt-detail-body-view > :first-child {
+  margin-top: 0;
+}
+.ogantt-detail-body-view > :last-child {
+  margin-bottom: 0;
 }
 .ogantt-muted {
   color: var(--text-muted);

@@ -1,4 +1,4 @@
-import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
+import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment, MarkdownRenderer } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
@@ -91,12 +91,17 @@ export class GanttView extends ItemView {
   private tasks: Task[] = [];
   private rows: Row[] = [];
   private range: DateRange = { min: 0, max: 0 };
+  private contentRange: DateRange = { min: 0, max: 0 }; // 実タスクの範囲（バッファ無し）。初期スクロール位置の算出に使う / actual task bounds (no buffer); used to place the initial scroll
+  private rangeOverride: DateRange | null = null; // 無限スクロールで広げた範囲（タスク範囲と合成）/ widened range for endless scroll (merged with task bounds)
+  private extending = false; // 端での範囲拡張中ガード（scroll 再入防止）/ guard while extending at an edge (prevents re-entrant scroll handling)
   private ppd = 16;
   // ホイールによる連続ズームの上書き値（null = ズームモードの固定幅に従う）/ free wheel-zoom override (null = follow the zoom mode)
   private customPpd: number | null = null;
   private wheelRAF = 0; // ホイール連打を 1 フレーム 1 再描画に束ねる / coalesce wheel bursts to one rerender per frame
   private wheelAxis: "x" | "y" | null = null; // 現ジェスチャの固定軸（斜め入力で縦横が同時に効かないように）/ locked axis for the current gesture (so diagonal input can't do both)
   private wheelAxisTime = 0; // 直近ホイールの時刻。途切れたら軸ロックを解除 / last wheel timestamp; a pause releases the lock
+  private wheelSumX = 0; // 軸決定前に貯めた横移動量（最初の1イベントは信用しない）/ accumulated horizontal travel before committing the axis (don't trust the first event)
+  private wheelSumY = 0; // 軸決定前に貯めた縦移動量 / accumulated vertical travel before committing the axis
   private measureCtx: CanvasRenderingContext2D | null = null; // バー内ラベルの幅測定用キャンバス（DOM 非依存・リフロー無し）/ canvas for measuring in-bar label width (no DOM/reflow)
   private measureFamily = ""; // 測定に使うフォントファミリ（初回に取得しキャッシュ）/ font family for measurement, cached on first use
   private selectedPath: string | null = null;
@@ -279,10 +284,14 @@ export class GanttView extends ItemView {
       // 親子ネストはフォルダグループ化のときだけ / nest by parent only when grouping by folder
       this.rows = buildRows(view, this.collapsed, folders, compare, this.groupBy === "folder");
     }
-    this.range = computeRange(view);
+    this.range = this.effectiveRange(view);
     this.ppd = this.computePpd();
     const titleEl = this.contentEl.querySelector(".ogantt-title");
     if (titleEl) titleEl.setText(this.folder || "(vault root)");
+
+    // 再描画前のスクロール位置を控える（無限スクロールで位置を保つため）/ remember the scroll position to keep it across the rerender
+    const prevMain = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+    const prevScroll = prevMain ? prevMain.scrollLeft : null;
 
     this.gridHost.empty();
     // タスクが無くても表示すべきフォルダ行があれば描画する / render if there are rows (even empty folders)
@@ -293,7 +302,13 @@ export class GanttView extends ItemView {
       return;
     }
     const main = this.gridHost.createDiv({ cls: "ogantt-main" });
+    // 端に近づいたら範囲を継ぎ足す＝無限スクロール / extend the range near the edges = endless scroll
+    main.addEventListener("scroll", () => this.onTimelineScroll(main), { passive: true });
     this.renderGrid(main);
+    // スクロール位置：前回値を復元、初回は内容の先頭へ（前後バッファのぶん右に寄せる）
+    // scroll position: restore the previous value; on first render jump to the content start (offset past the leading buffer)
+    main.scrollLeft = prevScroll ?? Math.max(0, (this.contentRange.min - this.range.min) * this.ppd);
+    this.pinTableColumn(main); // 初期スクロール位置でも左表を即固定（scroll イベント前）/ pin the left table at the initial position too (before any scroll event)
   }
 
   // 1 日あたりピクセルを決定。Fit はペイン幅から算出（収まらなければ最小幅で横スクロール）
@@ -313,17 +328,93 @@ export class GanttView extends ItemView {
     return ppd >= MIN_PPD ? ppd : MIN_PPD;
   }
 
+  // 表示範囲：タスク範囲＋前後バッファ（無限スクロール用に override で広げられる）。Fit はタスクを丸ごと収めるので拡張しない
+  // visible range: task bounds + a buffer each side (widened via override for endless scroll); Fit fits all tasks, so it gets no buffer
+  private effectiveRange(view: Task[]): DateRange {
+    const base = computeRange(view);
+    this.contentRange = base;
+    if (this.zoom === "Fit" && this.customPpd == null) return base;
+    const ppd = this.customPpd ?? pxPerDay(this.zoom);
+    const vpDays = Math.ceil((this.gridHost?.clientWidth ?? 800) / Math.max(1, ppd));
+    const pad = Math.max(90, vpDays * 2); // 可視幅の約2倍を前後に（最低90日）/ ~2 viewports each side (min 90 days)
+    let min = base.min - pad;
+    let max = base.max + pad;
+    if (this.rangeOverride) {
+      min = Math.min(min, this.rangeOverride.min);
+      max = Math.max(max, this.rangeOverride.max);
+    }
+    return { min, max };
+  }
+
+  // 左の表（ヘッダ＋本体）を横スクロールに追従させて固定する。CSS グリッドでは sticky-left がグリッド領域にクランプされ効かないため transform で固定
+  // pin the left table (header + body) to the horizontal scroll; sticky-left is clamped to the grid area in a CSS grid, so we use a transform instead
+  private pinTableColumn(main: HTMLElement): void {
+    const x = `translateX(${main.scrollLeft}px)`;
+    const corner = main.querySelector<HTMLElement>(".ogantt-corner");
+    const body = main.querySelector<HTMLElement>(".ogantt-tbody");
+    if (corner) corner.style.transform = x;
+    if (body) body.style.transform = x;
+  }
+
+  // 端に近づいたら範囲を継ぎ足して無限スクロールにする / extend the range near an edge for endless scrolling
+  private onTimelineScroll(main: HTMLElement): void {
+    this.pinTableColumn(main); // まず左表を追従させる / keep the left table pinned first
+    if (this.extending) return;
+    if (this.zoom === "Fit" && this.customPpd == null) return; // Fit は全体表示なので拡張しない / Fit shows everything; nothing to extend
+    const threshold = main.clientWidth; // 1画面ぶん手前で継ぎ足す / extend one viewport before the edge
+    const maxScroll = main.scrollWidth - main.clientWidth;
+    const chunk = Math.max(90, Math.ceil(main.clientWidth / Math.max(1, this.ppd)));
+    if (main.scrollLeft <= threshold) this.extendRange("left", chunk, main);
+    else if (main.scrollLeft >= maxScroll - threshold) this.extendRange("right", chunk, main);
+  }
+
+  // 範囲を chunk 日だけ片側へ広げて再描画。左拡張は内容が右へずれるのでスクロール位置を補正
+  // widen the range by `chunk` days on one side and rerender; left growth shifts content right, so offset the scroll to keep the view fixed
+  private extendRange(side: "left" | "right", chunk: number, main: HTMLElement): void {
+    this.extending = true;
+    const before = main.scrollLeft;
+    const cur = this.rangeOverride ?? { ...this.range };
+    this.rangeOverride = side === "left"
+      ? { min: cur.min - chunk, max: cur.max }
+      : { min: cur.min, max: cur.max + chunk };
+    this.rerender();
+    const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
+    if (m) {
+      m.scrollLeft = side === "left" ? before + chunk * this.ppd : before;
+      this.pinTableColumn(m); // 新しいスクロール位置に合わせて左表を即固定 / re-pin the left table at the new scroll position
+    }
+    this.extending = false;
+  }
+
   // ホイール／トラックパッドのジェスチャ。1ジェスチャにつき1軸だけ効かせる（縦=ズーム / 横=横スクロール）。
   // wheel/trackpad gesture: lock to a single axis per gesture (vertical = zoom, horizontal = scroll) so a diagonal swipe never does both.
   private onWheelZoom(e: WheelEvent): void {
     const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
     if (!main) return;
-    // 入力が一定時間途切れたら新しいジェスチャ＝軸ロックを解除 / a pause starts a new gesture, releasing the axis lock
-    if (e.timeStamp - this.wheelAxisTime > 160) this.wheelAxis = null;
+    // 入力が一定時間途切れたら新しいジェスチャ＝軸ロックと累積をリセット / a pause starts a new gesture: release the lock and reset accumulators
+    if (e.timeStamp - this.wheelAxisTime > 160) {
+      this.wheelAxis = null;
+      this.wheelSumX = 0;
+      this.wheelSumY = 0;
+    }
     this.wheelAxisTime = e.timeStamp;
     if (this.wheelAxis == null) {
-      if (e.deltaX === 0 && e.deltaY === 0) return;
-      this.wheelAxis = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? "x" : "y";
+      // 本物のピンチ（macOS は wheel + ctrlKey で送る）は方向によらず常にズーム
+      // a real pinch (macOS sends it as wheel + ctrlKey) always zooms, regardless of direction
+      if (e.ctrlKey) {
+        this.wheelAxis = "y";
+      } else {
+        // 最初の1イベントは縦横が混ざりやすい。少し動きを貯めてから「より大きい方」で軸を確定する。
+        // the first event mixes axes; accumulate a little travel, then commit to whichever direction is larger.
+        this.wheelSumX += Math.abs(e.deltaX);
+        this.wheelSumY += Math.abs(e.deltaY);
+        const AXIS_COMMIT = 6; // px。これ未満は判定保留（既定スクロールは止める）/ px; below this, defer the decision (and swallow the default scroll)
+        if (Math.max(this.wheelSumX, this.wheelSumY) < AXIS_COMMIT) {
+          e.preventDefault();
+          return;
+        }
+        this.wheelAxis = this.wheelSumX > this.wheelSumY ? "x" : "y";
+      }
     }
     const rect = main.getBoundingClientRect();
     if (this.wheelAxis === "x") {
@@ -351,7 +442,10 @@ export class GanttView extends ItemView {
       this.wheelRAF = 0;
       this.rerender();
       const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
-      if (m) m.scrollLeft = tableW + (dayUnder - this.range.min) * this.ppd - screenX;
+      if (m) {
+        m.scrollLeft = tableW + (dayUnder - this.range.min) * this.ppd - screenX;
+        this.pinTableColumn(m); // ズーム後のスクロール位置に合わせて左表を即固定 / re-pin the left table after the zoom adjusts scroll
+      }
     });
   }
 
@@ -1815,20 +1909,43 @@ export class GanttView extends ItemView {
       await this.refresh();
     })());
 
-    // 本文 / body（テキストエリア、フォーカスを外したら保存）/ body textarea, saved on blur
+    // 本文 / body：通常はMarkdownレンダリング表示、クリックで編集、フォーカスを外したら保存して再描画
+    // body: rendered markdown by default; click to edit in the textarea; on blur, save and re-render
     d.createEl("div", { cls: "ogantt-detail-label", text: tr().fieldBody });
+    const preview = d.createDiv({ cls: "ogantt-detail-body-view markdown-rendered" });
     const bodyArea = d.createEl("textarea", { cls: "ogantt-detail-body-edit" });
-    bodyArea.value = await readBody(this.app, t.path);
+    bodyArea.hide();
+    let raw = await readBody(this.app, t.path);
+    const renderPreview = async () => {
+      preview.empty();
+      if (raw.trim()) await MarkdownRenderer.render(this.app, raw, preview, t.path, this);
+      // 空のときも min-height（CSS）でクリック領域を確保 / keep a clickable area when empty (min-height via CSS)
+    };
     const autosize = () => {
-      // 高さを一旦リセットしてから内容に合わせる / reset, then fit to content
       bodyArea.setCssStyles({ height: "auto" });
       bodyArea.setCssStyles({ height: `${bodyArea.scrollHeight + 2}px` });
     };
+    // プレビュー→編集（リンク等のクリックはそのまま通す）/ preview → edit (let link clicks pass through)
+    preview.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("a")) return;
+      bodyArea.value = raw;
+      preview.hide();
+      bodyArea.show();
+      autosize();
+      bodyArea.focus();
+    });
     bodyArea.addEventListener("input", autosize);
+    // 編集→保存→プレビューへ戻す / edit → save → back to preview
     bodyArea.addEventListener("blur", () => void (async () => {
-      await writeBody(this.app, this.selectedPath!, bodyArea.value);
+      if (bodyArea.value !== raw) {
+        raw = bodyArea.value;
+        await writeBody(this.app, this.selectedPath!, raw);
+      }
+      bodyArea.hide();
+      await renderPreview();
+      preview.show();
     })());
-    window.setTimeout(autosize, 0);
+    await renderPreview();
   }
 
   // 確認ダイアログを挟んでタスクを削除（ゴミ箱へ）/ confirm, then delete the task (to trash)
