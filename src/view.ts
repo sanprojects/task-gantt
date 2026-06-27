@@ -31,14 +31,20 @@ import {
   formatDate,
 } from "./timeline";
 import { t as tr } from "./i18n"; // tr() … ローカル変数 t（Task）との衝突回避 / aliased to avoid clashing with the `t` task var
-
-const ROW_H = 30; // 行の高さ（表とタイムラインで共通）/ shared row height
-const HEAD_H = 40; // ヘッダー高さ / header height
-const BAR_PAD = 6; // バーの上下余白（少し増やして行に余白感）/ vertical padding inside a row (a touch more air)
-const RESIZE_EDGE = 8; // バー端リサイズの当たり幅 / edge-resize hit width
-const MIN_PPD = 2; // Fit 時の最小 1 日幅（これ未満は横スクロール）/ minimum px/day in Fit mode
-const MAX_PPD = 48; // 連続ズーム（ホイール）の最大 1 日幅 / max px/day for smooth wheel zoom
-const FALLBACK_BAR = "#7c8db5"; // ステータス/担当者が未設定のときのバー色 / bar color when status/assignee is unset
+import {
+  ROW_H,
+  HEAD_H,
+  BAR_PAD,
+  RESIZE_EDGE,
+  MIN_PPD,
+  MAX_PPD,
+  FALLBACK_BAR,
+  ColumnId,
+  COLUMN_ORDER,
+  OPTIONAL_COLUMNS,
+  COLUMN_WIDTHS,
+  MAX_INDENT_DEPTH,
+} from "./viewConstants";
 
 // 縦スクロールバーの実幅を一度だけ実測してキャッシュ（macOS のオーバーレイは 0）。
 // Fit 幅の右に固定で余白を取ると、スクロールバーが細い/無い環境で隙間として残るため。
@@ -53,15 +59,6 @@ function scrollbarWidth(): number {
   probe.remove();
   return cachedScrollbarW;
 }
-
-// テーブル列の定義 / table column definitions
-// name は常時表示・可変幅(flex)、その他は表示/非表示を切替え・固定幅
-// `name` is always shown and flexes; the rest are toggleable with a fixed width
-type ColumnId = "name" | "start" | "end" | "assignee" | "status" | "tags";
-const COLUMN_ORDER: ColumnId[] = ["name", "start", "end", "assignee", "status", "tags"];
-const OPTIONAL_COLUMNS: ColumnId[] = ["start", "end", "assignee", "status", "tags"]; // 歯車で出し分けできる列 / toggleable columns
-const COLUMN_WIDTHS: Record<ColumnId, number> = { name: 160, start: 84, end: 84, assignee: 96, status: 96, tags: 140 };
-const MAX_INDENT_DEPTH = 8; // インデントの段数上限（論理ツリーは無制限）/ visual indent cap (the tree itself is unlimited)
 
 // HSL → #rrggbb（カラーピッカーの初期値に hex が要るため）/ HSL → hex (color inputs need hex)
 function hslToHex(h: number, s: number, l: number): string {
