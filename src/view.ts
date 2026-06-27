@@ -153,12 +153,32 @@ export class GanttView extends ItemView {
     return "gantt-chart";
   }
 
-  // フォルダのスコープを状態として保存/復元 / persist the scoped folder
+  // スコープ＋表示オプション/フィルタを状態として保存/復元（再読込・再起動をまたぐ）/ persist scope + view options/filters (across reloads/restarts)
   getState(): Record<string, unknown> {
-    return { folder: this.folder };
+    return {
+      folder: this.folder,
+      colorBy: this.colorBy,
+      groupBy: this.groupBy,
+      filterAssignee: this.filterAssignee,
+      filterTag: this.filterTag,
+      hiddenStatuses: [...this.hiddenStatuses],
+      flat: this.flat,
+      showEmptyFolders: this.showEmptyFolders,
+      rollup: this.rollup,
+      zoom: this.zoom,
+    };
   }
   async setState(state: GanttViewState, result: ViewStateResult): Promise<void> {
     if (state && typeof state.folder === "string") this.folder = state.folder;
+    if (state?.colorBy) this.colorBy = state.colorBy;
+    if (state?.groupBy) this.groupBy = state.groupBy;
+    if (typeof state?.filterAssignee === "string") this.filterAssignee = state.filterAssignee;
+    if (typeof state?.filterTag === "string") this.filterTag = state.filterTag;
+    if (Array.isArray(state?.hiddenStatuses)) this.hiddenStatuses = new Set(state.hiddenStatuses);
+    if (typeof state?.flat === "boolean") this.flat = state.flat;
+    if (typeof state?.showEmptyFolders === "boolean") this.showEmptyFolders = state.showEmptyFolders;
+    if (typeof state?.rollup === "boolean") this.rollup = state.rollup;
+    if (state?.zoom) this.zoom = state.zoom;
     await super.setState(state, result);
     if (this.gridHost) await this.refresh();
   }
@@ -268,6 +288,7 @@ export class GanttView extends ItemView {
   // メモリ上の this.tasks から描画（ディスクは読まない）/ render from in-memory tasks (no disk read)
   // ドラッグや整列の直後、metadataCache 更新前に正しい位置を即表示するため / shows correct positions before metadataCache updates
   rerender(): void {
+    this.app.workspace.requestSaveLayout(); // フィルタ等の変更を workspace 状態へ保存（デバウンス済み）/ persist filter changes to workspace state (debounced)
     if (!this.gridHost) this.buildSkeleton();
     this.renderOptions(); // フィルタ/グループ/凡例を最新データで更新 / refresh options + legend
     this.updateProjectProgress(); // 全体進捗を最新データで更新 / refresh overall progress from current data

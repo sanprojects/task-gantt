@@ -51,6 +51,16 @@ export interface Row {
 // 専用ビューに渡す状態 / state passed to the dedicated view
 export interface GanttViewState {
   folder: string; // 表示対象フォルダのパス / scoped folder path ("" = vault root)
+  // 表示オプション/フィルタ（プラグイン再読込・再起動をまたいで保持）/ view options + filters, persisted across reloads/restarts
+  colorBy?: "status" | "assignee";
+  groupBy?: "folder" | "status" | "assignee" | "tag";
+  filterAssignee?: string;
+  filterTag?: string;
+  hiddenStatuses?: string[]; // 凡例で外したステータス / statuses dropped in the legend
+  flat?: boolean;
+  showEmptyFolders?: boolean;
+  rollup?: boolean;
+  zoom?: ZoomMode;
 }
 
 export const VIEW_TYPE_GANTT = "task-gantt-view";
