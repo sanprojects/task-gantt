@@ -130,6 +130,7 @@ export class GanttView extends ItemView {
   private zoomBtns = new Map<ZoomMode, HTMLButtonElement>(); // ズーム切替ボタン。手動ズーム時にハイライトを外すため参照を保持 / zoom buttons; kept so the active highlight can be cleared on manual zoom
   private scrollAnchorDay: number | null = null; // 直近のタイムライン左端の日付（getState のフォールバック）/ last timeline left-edge day (getState fallback when the DOM is gone)
   private pendingScrollDay: number | null = null; // 再読込から復元する左端の日付（次の rerender で適用）/ left-edge day to restore from a reload (applied on the next rerender)
+  private scrollSaveTimer: number | null = null; // スクロール後にワークスペース状態を保存するデバウンスタイマー / debounce timer to persist scroll position after scrolling
 
   // DOM 参照 / DOM refs
   private tbodyEl!: HTMLElement;
@@ -169,13 +170,11 @@ export class GanttView extends ItemView {
       rollup: this.rollup,
       zoom: this.zoom,
     };
-    // 手動（ホイール）ズーム中のみ倍率と左端位置を保存。プリセット/Fit は保存せず、再読込で再計算/再フィットさせる。
-    // persist the free scale + left-edge day only during a manual (wheel) zoom; presets/Fit are recomputed/re-fit on reload.
-    if (this.customPpd != null) {
-      s.customPpd = this.customPpd;
-      const anchor = this.currentAnchorDay();
-      if (anchor != null) s.scrollDay = anchor;
-    }
+    // 手動ズームのときは倍率も保存。Fit 以外は常にスクロール位置を保存（Fit は再フィットさせる）。
+    // always persist the scroll position except in Fit (which re-fits on reload); also save the custom scale when wheel-zoomed.
+    if (this.customPpd != null) s.customPpd = this.customPpd;
+    const anchor = this.currentAnchorDay();
+    if (anchor != null) s.scrollDay = anchor;
     return s;
   }
 
@@ -196,10 +195,10 @@ export class GanttView extends ItemView {
     if (typeof state?.showEmptyFolders === "boolean") this.showEmptyFolders = state.showEmptyFolders;
     if (typeof state?.rollup === "boolean") this.rollup = state.rollup;
     if (state?.zoom) this.zoom = state.zoom;
-    // 手動ズーム倍率と左端位置の復元。プリセット選択時は customPpd を持たない（null）＝位置も復元しない。
-    // restore the manual-zoom scale and left-edge day; a preset selection carries no customPpd (null) → no position restore either.
+    // 倍率と左端位置を復元。customPpd は手動ズーム時のみ存在。scrollDay はプリセットでも復元する。
+    // restore scale and scroll; customPpd exists only for wheel zoom; scrollDay is restored for presets too.
     this.customPpd = typeof state?.customPpd === "number" ? state.customPpd : null;
-    this.pendingScrollDay = this.customPpd != null && typeof state?.scrollDay === "number" ? state.scrollDay : null;
+    this.pendingScrollDay = typeof state?.scrollDay === "number" ? state.scrollDay : null;
     await super.setState(state, result);
     if (this.gridHost) await this.refresh();
   }
@@ -280,6 +279,10 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.fitTimer);
       this.fitTimer = null;
     }
+    if (this.scrollSaveTimer != null) {
+      window.clearTimeout(this.scrollSaveTimer);
+      this.scrollSaveTimer = null;
+    }
     activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // 開いたままのポップオーバーを掃除 / drop any open popover
   }
 
@@ -355,7 +358,8 @@ export class GanttView extends ItemView {
     // ホイールで連続ズーム中はその値を優先（モード/Fit より上）/ wheel zoom overrides the mode (and Fit)
     if (this.customPpd != null) return Math.min(MAX_PPD, Math.max(MIN_PPD, this.customPpd));
     if (this.zoom !== "Fit") return pxPerDay(this.zoom);
-    const totalDays = Math.max(1, this.range.max - this.range.min + 1);
+    // Fit はバッファ込みの range ではなくタスク実範囲（contentRange）で倍率を決める / use the actual task span (no buffer) for Fit scale
+    const totalDays = Math.max(1, this.contentRange.max - this.contentRange.min + 1);
     // 1px の安全マージン：端数なしで「ぴったり」埋めると、浮動小数の誤差で scrollWidth が
     // clientWidth を僅かに超え、全幅の横スクロールバーが出る。1px 引けば確実に収まり（不可視）。
     // 1px safety margin: filling the width *exactly* lets float rounding push scrollWidth just past
@@ -402,6 +406,9 @@ export class GanttView extends ItemView {
   private onTimelineScroll(main: HTMLElement): void {
     this.pinTableColumn(main); // まず左表を追従させる / keep the left table pinned first
     if (this.ppd > 0) this.scrollAnchorDay = this.range.min + main.scrollLeft / this.ppd; // 左端の日付をキャッシュ（再読込での復元用）/ cache the left-edge day for restore across reloads
+    // スクロール後300msでワークスペース状態を保存（再読込でスクロール位置を復元するため）/ save workspace state 300ms after scrolling so position survives reload
+    if (this.scrollSaveTimer != null) window.clearTimeout(this.scrollSaveTimer);
+    this.scrollSaveTimer = window.setTimeout(() => this.app.workspace.requestSaveLayout(), 300);
     if (this.extending) return;
     if (this.zoom === "Fit" && this.customPpd == null) return; // Fit は全体表示なので拡張しない / Fit shows everything; nothing to extend
     const threshold = main.clientWidth; // 1画面ぶん手前で継ぎ足す / extend one viewport before the edge
@@ -454,16 +461,13 @@ export class GanttView extends ItemView {
       e.preventDefault();
       const dx = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaMode === 2 ? e.deltaX * main.clientWidth : e.deltaX;
       // Fit 中は全体が収まりスクロール余地が無い。手動で横スワイプしたら Fit を解除し現在の倍率を固定（customPpd）
-      // ＝前後バッファが付いて自由にパンできる。Fit ボタンのハイライトも外れる（rerender 内の updateZoomButtons）。
-      // in Fit everything fits, so there's no room to pan; a manual horizontal swipe exits Fit by pinning the
-      // current scale (customPpd) — buffers get added so the timeline can pan, and the Fit highlight clears.
+      // in Fit everything fits; a manual horizontal swipe exits Fit by pinning the current scale (customPpd) so buffers get added.
       if (this.zoom === "Fit" && this.customPpd == null) {
         const before = main.scrollLeft;
-        this.customPpd = this.ppd; // 見た目の倍率を維持 / keep the on-screen scale
+        this.customPpd = this.ppd;
         this.rerender();
         const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
         if (!m) return;
-        // 左バッファぶん内容が右へずれるので補正してから当該スワイプを適用 / left buffer shifts content right: offset, then apply the swipe
         const leftBuffer = (this.contentRange.min - this.range.min) * this.ppd;
         m.scrollLeft = before + leftBuffer + dx;
         this.pinTableColumn(m);

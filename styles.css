@@ -265,6 +265,7 @@
   background: var(--background-secondary);
   border-right: 1px solid var(--background-modifier-border);
   border-bottom: 1px solid var(--background-modifier-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   font-size: 0.8em;
   color: var(--text-muted);
 }
@@ -465,6 +466,7 @@
   grid-row: 1;
   background: var(--background-secondary);
   border-bottom: 1px solid var(--background-modifier-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 .ogantt-svgwrap {
   grid-column: 2;
