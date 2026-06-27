@@ -102,9 +102,9 @@ export class GanttView extends ItemView {
   // 表示オプション（ビューを開いている間だけ保持）/ view options (kept while the view is open)
   private colorBy: "status" | "assignee" = "status";
   private groupBy: "folder" | "status" | "assignee" | "tag" = "folder";
-  private filterStatus = ""; // "" = すべて / all
   private filterAssignee = ""; // "" = すべて / all
   private filterTag = ""; // "" = すべて / all
+  private hiddenStatuses = new Set<string>(); // 凡例で外したステータス（空＝全表示）/ statuses unchecked in the legend (empty = show all)
   private showEmptyFolders = true; // 空フォルダも行として表示（既定ON）/ show empty folders as rows (default on)
   private flat = false; // フラット表示（フォルダ/親子を無視し全タスク一覧）/ flat list ignoring folders & nesting
   private rollup = false; // 親タスクのバーを子孫の集約で描く（既定OFF）/ draw parent bars as a rollup of descendants (default off)
@@ -200,9 +200,10 @@ export class GanttView extends ItemView {
     this.renderToolbar(root);
     this.optionsHost = root.createDiv({ cls: "ogantt-options" }); // 中身は rerender で差し替え / repopulated on rerender
     this.gridHost = root.createDiv({ cls: "ogantt-host" });
-    // Ctrl/⌘ + ホイールでカーソル位置を軸に連続ズーム（素のホイールは縦スクロールのまま）
-    // Ctrl/Cmd + wheel zooms smoothly, anchored under the cursor (plain wheel still scrolls)
-    this.registerDomEvent(this.gridHost, "wheel", (e: WheelEvent) => this.onWheelZoom(e));
+    // 縦ホイール／2本指の上下スワイプでカーソル位置を軸に連続ズーム（横スワイプは横スクロールのまま）
+    // vertical wheel / two-finger up-down swipe zooms smoothly, anchored under the cursor (horizontal swipe still scrolls)
+    // passive:false で登録しないと preventDefault が無視され縦スクロールを止められない / non-passive so preventDefault can cancel the scroll
+    this.registerDomEvent(this.gridHost, "wheel", (e: WheelEvent) => this.onWheelZoom(e), { passive: false });
     this.detailEl = root.createDiv({ cls: "ogantt-detail" });
     // 詳細パネルの外側（ビュー内のどこか）をクリックしたら閉じる。キャプチャ段階で閉じることで、
     // 行クリック等の「開く」ハンドラ（バブリング段階で実行）が後から開き直せる＝詳細の切り替えになる。
@@ -304,20 +305,23 @@ export class GanttView extends ItemView {
     return ppd >= MIN_PPD ? ppd : MIN_PPD;
   }
 
-  // Ctrl/⌘ + ホイールで連続ズーム。カーソル下の日付を固定したまま ppd を増減する。
-  // smooth wheel zoom: scale ppd up/down while keeping the day under the cursor pinned in place.
+  // ホイール／トラックパッド2本指の縦スワイプで連続ズーム。カーソル下の日付を固定したまま ppd を増減する。
+  // smooth zoom from the wheel / a two-finger vertical trackpad swipe; keeps the day under the cursor pinned.
   private onWheelZoom(e: WheelEvent): void {
-    if (!(e.ctrlKey || e.metaKey)) return; // 修飾キー無しは通常スクロール / no modifier = normal scroll
+    // 横方向が優勢なジェスチャは通常のタイムライン横スクロールに任せる / let horizontal-dominant gestures scroll
+    if (e.deltaY === 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     const main = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
     if (!main) return;
-    e.preventDefault(); // ブラウザ/Obsidian のページズームを抑止 / suppress page zoom
+    e.preventDefault(); // 縦スクロール／ページズームを奪ってズームに充てる / claim the gesture for zoom
     const rect = main.getBoundingClientRect();
     const tableW = this.tableWidth();
     const screenX = e.clientX - rect.left; // ビューポート内のカーソル x / cursor x within the pane
     // カーソル下の（小数）日付。タイムラインは固定列の右から始まる / fractional day under the cursor (timeline starts after the sticky table)
     const dayUnder = this.range.min + (screenX + main.scrollLeft - tableW) / this.ppd;
+    // deltaMode を px に正規化（マウスは行/ページ単位、トラックパッドは px）/ normalize deltaMode to px (mouse: lines/pages, trackpad: px)
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * rect.height : e.deltaY;
     // 指数スケールで等比ズーム＝どの倍率でも体感が一定 / exponential step keeps the feel constant at any scale
-    const next = Math.min(MAX_PPD, Math.max(MIN_PPD, this.ppd * Math.exp(-e.deltaY * 0.0015)));
+    const next = Math.min(MAX_PPD, Math.max(MIN_PPD, this.ppd * Math.exp(-dy * 0.0015)));
     if (next === this.ppd && this.customPpd != null) return; // 端で頭打ち / clamped at a limit
     this.customPpd = next;
     // 1 フレームにつき 1 再描画。最新のカーソル軸でスクロール位置を補正して固定する。
@@ -557,20 +561,17 @@ export class GanttView extends ItemView {
       tr().optColorLabel,
       this.colorBy,
       [["status", tr().fieldStatus], ["assignee", tr().fieldAssignee]],
-      (v) => { this.colorBy = v as typeof this.colorBy; this.rerender(); }
+      (v) => {
+        this.colorBy = v as typeof this.colorBy;
+        // ステータス凡例フィルタはステータス色分け時のみ操作可能なので、外れたら解除して不可視フィルタを残さない / the status legend-filter is only operable while coloring by status, so clear it otherwise to avoid an invisible filter
+        if (this.colorBy !== "status") this.hiddenStatuses.clear();
+        this.rerender();
+      }
     );
 
     // ── 絞り込み（フィルタ）と視覚的に分ける区切り / divider before filters ──
     host.createDiv({ cls: "ogantt-opt-divider" });
 
-    // ステータスで絞り込み / filter by status
-    makeSelect(
-      "filter",
-      tr().fieldStatus,
-      this.filterStatus,
-      [["", tr().filterAll], ...statuses.map((s) => [s.id, s.label] as [string, string])],
-      (v) => { this.filterStatus = v; this.rerender(); }
-    );
     // 担当者で絞り込み / filter by assignee
     makeSelect(
       "user",
@@ -612,18 +613,35 @@ export class GanttView extends ItemView {
     // 凡例（色分けの基準を説明）/ legend explaining the current color basis
     const legend = host.createDiv({ cls: "ogantt-legend" });
     if (this.colorBy === "status") {
-      for (const s of statuses) this.legendChip(legend, s.color, s.label);
+      // 凡例＝ステータスのトグルフィルタ（既定で全選択、クリックで外す）/ legend doubles as a status toggle-filter (all on by default, click to drop)
+      for (const s of statuses) {
+        const on = !this.hiddenStatuses.has(s.id);
+        this.legendChip(legend, s.color, s.label, () => {
+          if (this.hiddenStatuses.has(s.id)) this.hiddenStatuses.delete(s.id);
+          else this.hiddenStatuses.add(s.id);
+          this.rerender();
+        }, on);
+      }
     } else {
       for (const a of assignees) this.legendChip(legend, hashColor(a), a);
       if (this.tasks.some((t) => !t.assignee)) this.legendChip(legend, FALLBACK_BAR, none);
     }
   }
 
-  private legendChip(parent: HTMLElement, color: string, label: string): void {
+  private legendChip(parent: HTMLElement, color: string, label: string, onToggle?: () => void, on = true): void {
     const chip = parent.createDiv({ cls: "ogantt-legend-chip" });
     const sw = chip.createSpan({ cls: "ogantt-legend-swatch" });
     sw.style.background = color;
     chip.createSpan({ text: label });
+    if (onToggle) {
+      chip.classList.add("is-toggle");
+      chip.classList.toggle("is-off", !on);
+      chip.setAttr("role", "checkbox");
+      chip.setAttr("aria-checked", String(on));
+      chip.setAttr("tabindex", "0");
+      chip.onclick = onToggle;
+      chip.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } };
+    }
   }
 
   // タグ/フォルダの色（手動上書きがあればそれ、無ければ名前ハッシュで自動生成）/ tag/folder color (manual override, else auto from name)
@@ -677,7 +695,7 @@ export class GanttView extends ItemView {
   // フィルタ→グループ再マッピングを適用したタスク列を返す / tasks after filter + group remap
   private processTasks(): Task[] {
     let list = this.tasks;
-    if (this.filterStatus) list = list.filter((t) => (t.status ?? "") === this.filterStatus);
+    if (this.hiddenStatuses.size) list = list.filter((t) => !this.hiddenStatuses.has(t.status ?? ""));
     if (this.filterAssignee) list = list.filter((t) => (t.assignee ?? "") === this.filterAssignee);
     if (this.filterTag) list = list.filter((t) => t.tags.includes(this.filterTag));
     // フラットはグループを無視＝再マッピング不要（タグ複製で重複行が出るのも防ぐ）/ flat ignores groups: skip remap (also avoids tag-duplicated rows)
