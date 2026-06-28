@@ -912,11 +912,14 @@ export class GanttView extends ItemView {
     if (this.undoBtn) this.undoBtn.disabled = this.undoStack.length === 0;
   }
 
-  // Build the seam handed to the render/* modules: live getters for mutable state,
-  // bound callbacks for view-owned behavior. Cheap to create (once per render pass).
+  // Seam handed to the render/* modules: live getters for mutable state, bound callbacks for
+  // view-owned behavior. Built once and reused across renders — the getters always read current
+  // state and the captured refs (app/plugin/measurer/dragged) are never reassigned.
+  private cachedCtx?: ViewCtx;
   private ctx(): ViewCtx {
+    if (this.cachedCtx) return this.cachedCtx;
     const self = this;
-    return {
+    return (this.cachedCtx = {
       app: this.app,
       plugin: this.plugin,
       measurer: this.measurer,
@@ -956,7 +959,7 @@ export class GanttView extends ItemView {
       rerender: () => this.rerender(),
       pushUndo: (l) => this.pushUndo(l),
       updateProjectProgress: (o) => this.updateProjectProgress(o),
-    };
+    });
   }
 
   // ----- create a new task -----
