@@ -247,7 +247,7 @@ export class GanttView extends ItemView {
       window.clearTimeout(this.scrollSaveTimer);
       this.scrollSaveTimer = null;
     }
-    activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu, .ogantt-timepick").forEach((e) => e.remove()); // drop any open popover
+    activeDocument.querySelectorAll(".ogantt-cal, .ogantt-colmenu").forEach((e) => e.remove()); // drop any open popover
   }
 
   // re-collect from disk, then render
@@ -1169,136 +1169,6 @@ export class GanttView extends ItemView {
         await this.refresh();
       })(),
     }).open();
-  }
-
-  // save a frontmatter field (delete if empty)
-  private async saveField(key: string, value: string): Promise<void> {
-    if (!this.selectedPath) return;
-    await writeField(this.app, this.selectedPath, key, value === "" ? undefined : value);
-    await this.refresh();
-  }
-
-  // dates area: start & end chips side by side, each clearable with ×, click opens the range calendar
-  private buildDates(meta: HTMLElement, t: Task): void {
-    const fmt = this.plugin.settings.dateFormat;
-    const state = { start: t.start ?? "", end: t.end ?? "" };
-    // optional time of day, editable only when the date is set
-    const times = { start: t.startTime ?? "", end: t.endTime ?? "" };
-
-    const row = meta.createDiv({ cls: "ogantt-detail-row" });
-    row.createSpan({ cls: "ogantt-detail-label", text: tr().fieldDates });
-    const chips = row.createDiv({ cls: "ogantt-detail-field ogantt-date-chips" });
-
-    const painters: (() => void)[] = [];
-    const repaint = () => painters.forEach((p) => p());
-
-    // persist both ends (delete when empty; append the time of day when set)
-    const save = async (): Promise<void> => {
-      if (!this.selectedPath) return;
-      // "start only" isn't valid: fill end = start
-      if (state.start && !state.end) state.end = state.start;
-      // clamp so start ≤ end within the same day
-      if (state.start && state.start === state.end && times.start && times.end && times.end < times.start) {
-        times.end = times.start;
-      }
-      repaint(); // reflect any clamping right away
-      await this.pushUndo(tr().undoReschedule(t.name)); // undoable
-      await writeDateRange(this.app, this.plugin.settings, this.selectedPath, state.start, times.start, state.end, times.end);
-      await this.refresh();
-    };
-
-    const makeChip = (which: "start" | "end"): void => {
-      const chip = chips.createDiv({ cls: "ogantt-date-chip" });
-      const ico = chip.createSpan({ cls: "ogantt-date-ico" });
-      setIcon(ico, "calendar");
-      const val = chip.createSpan({ cls: "ogantt-date-val" });
-      const x = chip.createEl("button", { cls: "ogantt-date-x clickable-icon" });
-      setIcon(x, "x");
-      x.setAttr("aria-label", tr().clearDate);
-      const paint = () => {
-        const iso = state[which];
-        // × visibility is handled by CSS via .is-empty
-        if (iso) {
-          // show the time of day after the date when set
-          val.setText(formatDate(iso, fmt) + (times[which] ? ` ${times[which]}` : ""));
-          chip.removeClass("is-empty");
-        } else {
-          val.setText(which === "start" ? tr().fieldStart : tr().fieldDue);
-          chip.addClass("is-empty");
-        }
-      };
-      painters.push(paint);
-      chip.addEventListener("click", (e) => {
-        if ((e.target as HTMLElement).closest(".ogantt-date-x")) return; // handled below
-        this.openRangePicker(chip, state, which, repaint, save);
-      });
-      x.addEventListener("click", (e) => {
-        e.stopPropagation();
-        state[which] = "";
-        repaint();
-        void save();
-      });
-    };
-
-    makeChip("start");
-    makeChip("end");
-
-    // time-of-day for start & end: manual typing at 1-minute precision, the clock icon opens
-    // hour + minute (10-min steps) dropdowns (Chromium's native picker ignores `step`)
-    const trow = meta.createDiv({ cls: "ogantt-detail-row" });
-    trow.createSpan({ cls: "ogantt-detail-label", text: tr().fieldTime });
-    const tfield = trow.createDiv({ cls: "ogantt-detail-field ogantt-time-inputs" });
-    const makeTime = (which: "start" | "end"): void => {
-      const wrap = tfield.createDiv({ cls: "ogantt-time-wrap" });
-      const inp = wrap.createEl("input", { cls: "ogantt-time-input", type: "time" });
-      const btn = wrap.createEl("button", { cls: "clickable-icon ogantt-time-btn" });
-      setIcon(btn, "clock");
-      btn.setAttr("aria-label", tr().fieldTime);
-      const paint = () => {
-        inp.value = times[which];
-        const dis = !state[which] || (which === "start" && t.milestone);
-        inp.disabled = dis;
-        btn.disabled = dis;
-      };
-      painters.push(paint);
-      const apply = (v: string) => {
-        times[which] = v;
-        // if start > end on the same day, always clamp end = start (never move the start)
-        if (state.start && state.start === state.end && times.start && times.end && times.end < times.start) {
-          times.end = times.start;
-        }
-        repaint(); // refresh the time shown on the chips
-        void save();
-      };
-      inp.addEventListener("change", () => apply(inp.value)); // manual entry: any minute
-      btn.addEventListener("click", () => this.openTimeDropdown(btn, times[which], apply));
-    };
-    makeTime("start");
-    makeTime("end");
-    repaint();
-  }
-
-  // clock-icon popup: pick a time with hour + minute (10-min steps) dropdowns; × clears the time
-  private openTimeDropdown(anchor: HTMLElement, current: string, apply: (v: string) => void): void {
-    openPopover({ cls: "ogantt-timepick", anchor }, (pop, close) => {
-      const [ch, cm] = /^\d{2}:\d{2}$/.test(current) ? current.split(":") : ["09", "00"];
-      const hourSel = pop.createEl("select", { cls: "dropdown" });
-      for (let h = 0; h < 24; h++) hourSel.createEl("option", { value: pad2(h), text: pad2(h) });
-      hourSel.value = ch;
-      pop.createSpan({ text: ":" });
-      const minSel = pop.createEl("select", { cls: "dropdown" });
-      for (let m = 0; m < 60; m += 10) minSel.createEl("option", { value: pad2(m), text: pad2(m) });
-      // keep an off-grid minute (e.g. manual entry) selectable
-      if (!minSel.querySelector(`option[value="${cm}"]`)) minSel.createEl("option", { value: cm, text: cm });
-      minSel.value = cm;
-      const onPick = () => apply(`${hourSel.value}:${minSel.value}`);
-      hourSel.addEventListener("change", onPick);
-      minSel.addEventListener("change", onPick);
-      const clr = pop.createEl("button", { cls: "clickable-icon" });
-      setIcon(clr, "x");
-      clr.setAttr("aria-label", tr().clearDate);
-      clr.onclick = () => { apply(""); close(); };
-    });
   }
 
   // fill a non-name cell by column id
