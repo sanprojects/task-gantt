@@ -147,6 +147,7 @@ export class GanttView extends ItemView {
     if (this.customPpd != null) s.customPpd = this.customPpd;
     const anchor = this.currentAnchorDay();
     if (anchor != null) s.scrollDay = anchor;
+    if (this.selectedPath != null) s.selectedPath = this.selectedPath; // keep the row highlight across reloads
     return s;
   }
 
@@ -170,6 +171,7 @@ export class GanttView extends ItemView {
     // restore scale and scroll; customPpd exists only for wheel zoom; scrollDay is restored for presets too.
     this.customPpd = typeof state?.customPpd === "number" ? state.customPpd : null;
     this.pendingScrollDay = typeof state?.scrollDay === "number" ? state.scrollDay : null;
+    if (typeof state?.selectedPath === "string") this.selectedPath = state.selectedPath;
     await super.setState(state, result);
     if (this.gridHost) await this.refresh();
   }
@@ -1060,19 +1062,13 @@ export class GanttView extends ItemView {
       this.selectedPath = null;
       this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
       this.gridHost?.querySelector<SVGElement>(".ogantt-svg")?.querySelectorAll(".ogantt-row-sel").forEach((e) => e.remove());
+      this.app.workspace.requestSaveLayout(); // persist the cleared selection
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
-    // in-memory ref gone? try to recover by the persisted leaf id so the same pane survives reloads
-    if (this.noteLeaf && !this.isLeafAttached(this.noteLeaf)) this.noteLeaf = null;
-    if (!this.noteLeaf && this.plugin.settings.sidebarLeafId) {
-      const savedId = this.plugin.settings.sidebarLeafId;
-      this.app.workspace.iterateAllLeaves((l) => {
-        if ((l as any).id === savedId) this.noteLeaf = l;
-      });
-    }
-    const leaf = this.noteLeaf ?? this.app.workspace.getRightLeaf(false);
+    // recover the reused pane by its persisted id so it survives reloads
+    const leaf = this.resolveNoteLeaf() ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     // persist the leaf id so the next reload can find the same pane
     const leafId = (leaf as any).id as string | undefined;
@@ -1093,9 +1089,24 @@ export class GanttView extends ItemView {
     return found;
   }
 
+  // find the reused sidebar leaf (in-memory ref, else by persisted id); null if it's gone
+  private resolveNoteLeaf(): WorkspaceLeaf | null {
+    if (this.noteLeaf && this.isLeafAttached(this.noteLeaf)) return this.noteLeaf;
+    this.noteLeaf = null;
+    const savedId = this.plugin.settings.sidebarLeafId;
+    if (savedId) {
+      this.app.workspace.iterateAllLeaves((l) => {
+        if ((l as any).id === savedId) this.noteLeaf = l;
+      });
+    }
+    return this.noteLeaf;
+  }
+
   // update the selected-row highlight (marks the task shown in the sidebar)
   private markSelected(path: string): void {
+    const changed = this.selectedPath !== path;
     this.selectedPath = path;
+    if (changed) this.app.workspace.requestSaveLayout(); // persist so the highlight survives reloads
     // table row
     this.tbodyEl?.querySelectorAll(".ogantt-tr.is-selected").forEach((e) => e.removeClass("is-selected"));
     this.tbodyEl?.querySelector(`.ogantt-tr[data-path="${CSS.escape(path)}"]`)?.addClass("is-selected");

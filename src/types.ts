@@ -63,6 +63,7 @@ export interface GanttViewState {
   // saved only during a manual (wheel) zoom: the free px/day and the left-edge day. Not stored for presets/Fit.
   customPpd?: number | null;
   scrollDay?: number;
+  selectedPath?: string; // task whose note is in the sidebar; preserves the row highlight across reloads
 }
 
 export const VIEW_TYPE_GANTT = "task-gantt-view";
