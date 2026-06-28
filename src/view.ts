@@ -64,6 +64,8 @@ export class GanttView extends ItemView {
   private contentRange: DateRange = { min: 0, max: 0 }; // actual task bounds (no buffer); used to place the initial scroll
   private rangeOverride: DateRange | null = null; // widened range for endless scroll (merged with task bounds)
   private extending = false; // guard while extending at an edge (prevents re-entrant scroll handling)
+  private suppressExtend = false; // set when we set scrollLeft ourselves, so the resulting scroll event isn't treated as a user edge-scroll
+  private suppressExtendTimer: number | null = null;
   private ppd = 16;
   // free wheel-zoom override (null = follow the zoom mode)
   private customPpd: number | null = null;
@@ -289,14 +291,14 @@ export class GanttView extends ItemView {
       // nest by parent only when grouping by folder
       this.rows = buildRows(view, this.collapsed, folders, compare, this.groupBy === "folder");
     }
-    this.range = this.effectiveRange(view);
+    // capture the left-edge day BEFORE the scale changes; restoring by day (not raw pixels) keeps
+    // the view put across a zoom switch — a pixel offset means a different date at a different px/day.
+    const prevAnchorDay = this.currentAnchorDay();
+    this.contentRange = computeRange(view); // actual task bounds; Fit's ppd and the initial scroll derive from this
     this.ppd = this.computePpd();
+    this.range = this.effectiveRange();
     const titleEl = this.contentEl.querySelector(".ogantt-title");
     if (titleEl) titleEl.setText(this.folder || "(vault root)");
-
-    // remember the scroll position to keep it across the rerender
-    const prevMain = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
-    const prevScroll = prevMain ? prevMain.scrollLeft : null;
 
     this.gridHost.empty();
     // render if there are rows (even empty folders)
@@ -310,12 +312,19 @@ export class GanttView extends ItemView {
     // extend the range near the edges = endless scroll
     main.addEventListener("scroll", () => this.onTimelineScroll(main), { passive: true });
     renderGrid(this.ctx(), main);
-    // scroll position priority: (1) restore from a reload (left-edge day), (2) the pre-rerender value, (3) content start on first render.
+    // scroll position priority: (1) restore from a reload (left-edge day), (2) Fit always shows the
+    // whole span from its start, (3) keep the prior left-edge day across a rerender/zoom switch,
+    // (4) content start on first render.
+    const contentStart = (this.contentRange.min - this.range.min) * this.ppd;
     if (this.pendingScrollDay != null) {
-      main.scrollLeft = Math.max(0, (this.pendingScrollDay - this.range.min) * this.ppd);
+      this.setScrollLeft(main, (this.pendingScrollDay - this.range.min) * this.ppd);
       this.pendingScrollDay = null; // apply once
+    } else if (this.zoom === "Fit" && this.customPpd == null) {
+      this.setScrollLeft(main, contentStart); // Fit fills the pane: start at the content's left edge
+    } else if (prevAnchorDay != null) {
+      this.setScrollLeft(main, (prevAnchorDay - this.range.min) * this.ppd);
     } else {
-      main.scrollLeft = prevScroll ?? Math.max(0, (this.contentRange.min - this.range.min) * this.ppd);
+      this.setScrollLeft(main, contentStart);
     }
     this.pinTableColumn(main); // pin the left table at the initial position too (before any scroll event)
   }
@@ -337,12 +346,12 @@ export class GanttView extends ItemView {
     return ppd >= MIN_PPD ? ppd : MIN_PPD;
   }
 
-  // visible range: task bounds + a buffer each side (widened via override for endless scroll); Fit fits all tasks, so it gets no buffer
-  private effectiveRange(view: Task[]): DateRange {
-    const base = computeRange(view);
-    this.contentRange = base;
-    if (this.zoom === "Fit" && this.customPpd == null) return base;
-    const ppd = this.customPpd ?? pxPerDay(this.zoom);
+  // visible range: task bounds + a buffer each side (widened via override for endless scroll).
+  // Fit is no longer special-cased: it auto-scales the span to the pane width (computePpd) but gets
+  // the same buffer + endless scroll as the presets, so it doesn't look clamped to the task bounds.
+  private effectiveRange(): DateRange {
+    const base = this.contentRange;
+    const ppd = this.ppd > 0 ? this.ppd : pxPerDay(this.zoom);
     const vpDays = Math.ceil((this.gridHost?.clientWidth ?? 800) / Math.max(1, ppd));
     const pad = Math.max(90, vpDays * 2); // ~2 viewports each side (min 90 days)
     let min = base.min - pad;
@@ -363,6 +372,15 @@ export class GanttView extends ItemView {
     if (body) body.style.transform = x;
   }
 
+  // set scrollLeft ourselves without the resulting scroll event being read as a user edge-scroll (which would endlessly extend the range → freeze)
+  private setScrollLeft(m: HTMLElement, value: number): void {
+    this.suppressExtend = true;
+    m.scrollLeft = Math.max(0, value);
+    // safety net: clear the flag a frame later in case no scroll event fires (e.g. value unchanged)
+    if (this.suppressExtendTimer != null) window.clearTimeout(this.suppressExtendTimer);
+    this.suppressExtendTimer = window.setTimeout(() => { this.suppressExtend = false; }, 150);
+  }
+
   // extend the range near an edge for endless scrolling
   private onTimelineScroll(main: HTMLElement): void {
     this.pinTableColumn(main); // keep the left table pinned first
@@ -371,7 +389,7 @@ export class GanttView extends ItemView {
     if (this.scrollSaveTimer != null) window.clearTimeout(this.scrollSaveTimer);
     this.scrollSaveTimer = window.setTimeout(() => this.app.workspace.requestSaveLayout(), 300);
     if (this.extending) return;
-    if (this.zoom === "Fit" && this.customPpd == null) return; // Fit shows everything; nothing to extend
+    if (this.suppressExtend) { this.suppressExtend = false; return; } // our own programmatic scroll, not the user — don't extend
     const threshold = main.clientWidth; // extend one viewport before the edge
     const maxScroll = main.scrollWidth - main.clientWidth;
     const chunk = Math.max(90, Math.ceil(main.clientWidth / Math.max(1, this.ppd)));
@@ -390,7 +408,7 @@ export class GanttView extends ItemView {
     this.rerender();
     const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
     if (m) {
-      m.scrollLeft = side === "left" ? before + chunk * this.ppd : before;
+      this.setScrollLeft(m, side === "left" ? before + chunk * this.ppd : before);
       this.pinTableColumn(m); // re-pin the left table at the new scroll position
     }
     this.extending = false;
@@ -417,18 +435,7 @@ export class GanttView extends ItemView {
       // horizontal swipe scrolls the timeline only; vertical component ignored
       e.preventDefault();
       const dx = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaMode === 2 ? e.deltaX * main.clientWidth : e.deltaX;
-      // in Fit everything fits; a manual horizontal swipe exits Fit by pinning the current scale (customPpd) so buffers get added.
-      if (this.zoom === "Fit" && this.customPpd == null) {
-        const before = main.scrollLeft;
-        this.customPpd = this.ppd;
-        this.rerender();
-        const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
-        if (!m) return;
-        const leftBuffer = (this.contentRange.min - this.range.min) * this.ppd;
-        m.scrollLeft = before + leftBuffer + dx;
-        this.pinTableColumn(m);
-        return;
-      }
+      // Fit now has a buffer + endless scroll like the presets, so a horizontal swipe just scrolls it.
       main.scrollLeft += dx;
       return;
     }
@@ -453,7 +460,7 @@ export class GanttView extends ItemView {
       this.rerender();
       const m = this.gridHost.querySelector<HTMLElement>(".ogantt-main");
       if (m) {
-        m.scrollLeft = tableW + (dayUnder - this.range.min) * this.ppd - screenX;
+        this.setScrollLeft(m, tableW + (dayUnder - this.range.min) * this.ppd - screenX);
         m.scrollTop = topBefore; // keep the vertical position so the table doesn't jump up
         this.pinTableColumn(m); // re-pin the left table after the zoom adjusts scroll
       }
