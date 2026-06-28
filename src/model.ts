@@ -1,6 +1,6 @@
 import { App, TFile, TFolder, getAllTags, normalizePath } from "obsidian";
 import { GanttSettings } from "./settings";
-import { Task, Row, Dep, DepType } from "./types";
+import { Task, Row, Dep, DepType, StatusDef } from "./types";
 import { pad2 } from "./timeline";
 
 // split a raw `after` entry into type + link
@@ -204,6 +204,48 @@ export function anchorStart(t: Task): string | undefined {
 }
 export function anchorEnd(t: Task): string | undefined {
   return t.milestone ? t.end ?? t.start : t.end ?? t.start;
+}
+
+// Apply the active filters and remap groups for the current grouping mode (pure; for display).
+// Returns the task list to feed buildRows. "folder" grouping and flat mode keep the original
+// groups; status/assignee collapse into one synthetic group; tag duplicates a task per tag.
+export function processTasks(
+  tasks: Task[],
+  opts: {
+    filterAssignee: string;
+    filterTag: string;
+    hiddenStatuses: Set<string>;
+    groupBy: "folder" | "status" | "assignee" | "tag";
+    flat: boolean;
+    statuses: StatusDef[];
+    noneLabel: string;
+  }
+): Task[] {
+  let list = tasks;
+  if (opts.hiddenStatuses.size) list = list.filter((t) => !opts.hiddenStatuses.has(t.status ?? ""));
+  if (opts.filterAssignee) list = list.filter((t) => (t.assignee ?? "") === opts.filterAssignee);
+  if (opts.filterTag) list = list.filter((t) => t.tags.includes(opts.filterTag));
+  // flat ignores groups: skip remap (also avoids tag-duplicated rows)
+  if (opts.groupBy === "folder" || opts.flat) return list;
+  const none = opts.noneLabel;
+  // tags are multi-valued: duplicate a task into each tag's group (untagged goes to "none")
+  if (opts.groupBy === "tag") {
+    const out: Task[] = [];
+    for (const t of list) {
+      if (t.tags.length === 0) out.push({ ...t, groups: [none] });
+      else for (const tag of t.tags) out.push({ ...t, groups: [tag] });
+    }
+    return out;
+  }
+  // remap groups to a single synthetic group to reuse buildRows
+  const statusLabel = new Map(opts.statuses.map((s) => [s.id, s.label]));
+  return list.map((t) => {
+    const key =
+      opts.groupBy === "status"
+        ? t.status ? statusLabel.get(t.status) ?? t.status : none
+        : t.assignee || none;
+    return { ...t, groups: [key] };
+  });
 }
 
 // folder tree node

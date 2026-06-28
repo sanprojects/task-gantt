@@ -14,6 +14,7 @@ import {
   addTag,
   anchorStart,
   anchorEnd,
+  processTasks,
 } from "./model";
 import {
   DateRange,
@@ -38,6 +39,7 @@ import { hashColor, tagColor, folderColor } from "./color";
 import { ConfirmModal } from "./confirmModal";
 import { TextMeasurer, svgEl } from "./svg";
 import { openPopover } from "./dom/popover";
+import { legendChip } from "./dom/legendChip";
 import { ViewCtx } from "./render/context";
 import { renderGrid } from "./render/grid";
 
@@ -268,7 +270,15 @@ export class GanttView extends ItemView {
     this.renderOptions(); // refresh options + legend
     this.updateProjectProgress(); // refresh overall progress from current data
     this.updateZoomButtons(); // drop the preset highlight while a manual zoom is active
-    const view = this.processTasks(); // after filter + group remap
+    const view = processTasks(this.tasks, {
+      filterAssignee: this.filterAssignee,
+      filterTag: this.filterTag,
+      hiddenStatuses: this.hiddenStatuses,
+      groupBy: this.groupBy,
+      flat: this.flat,
+      statuses: this.plugin.settings.statuses,
+      noneLabel: tr().noneLabel,
+    }); // after filter + group remap
     const compare = this.taskComparator();
     if (this.flat) {
       // flat: one sorted list, no grouping/nesting
@@ -755,31 +765,15 @@ export class GanttView extends ItemView {
       // legend doubles as a status toggle-filter (all on by default, click to drop)
       for (const s of statuses) {
         const on = !this.hiddenStatuses.has(s.id);
-        this.legendChip(legend, s.color, s.label, () => {
+        legendChip(legend, s.color, s.label, () => {
           if (this.hiddenStatuses.has(s.id)) this.hiddenStatuses.delete(s.id);
           else this.hiddenStatuses.add(s.id);
           this.rerender();
         }, on);
       }
     } else {
-      for (const a of assignees) this.legendChip(legend, hashColor(a), a);
-      if (this.tasks.some((t) => !t.assignee)) this.legendChip(legend, FALLBACK_BAR, none);
-    }
-  }
-
-  private legendChip(parent: HTMLElement, color: string, label: string, onToggle?: () => void, on = true): void {
-    const chip = parent.createDiv({ cls: "ogantt-legend-chip" });
-    const sw = chip.createSpan({ cls: "ogantt-legend-swatch" });
-    sw.style.background = color;
-    chip.createSpan({ text: label });
-    if (onToggle) {
-      chip.classList.add("is-toggle");
-      chip.classList.toggle("is-off", !on);
-      chip.setAttr("role", "checkbox");
-      chip.setAttr("aria-checked", String(on));
-      chip.setAttr("tabindex", "0");
-      chip.onclick = onToggle;
-      chip.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } };
+      for (const a of assignees) legendChip(legend, hashColor(a), a);
+      if (this.tasks.some((t) => !t.assignee)) legendChip(legend, FALLBACK_BAR, none);
     }
   }
 
@@ -814,35 +808,6 @@ export class GanttView extends ItemView {
     }));
     m.addItem((i) => i.setTitle(tr().menuResetColor).setIcon("rotate-ccw").onClick(() => this.setColorOverride(kind, name, null)));
     m.showAtMouseEvent(e);
-  }
-
-  // tasks after filter + group remap
-  private processTasks(): Task[] {
-    let list = this.tasks;
-    if (this.hiddenStatuses.size) list = list.filter((t) => !this.hiddenStatuses.has(t.status ?? ""));
-    if (this.filterAssignee) list = list.filter((t) => (t.assignee ?? "") === this.filterAssignee);
-    if (this.filterTag) list = list.filter((t) => t.tags.includes(this.filterTag));
-    // flat ignores groups: skip remap (also avoids tag-duplicated rows)
-    if (this.groupBy === "folder" || this.flat) return list;
-    const none = tr().noneLabel;
-    // tags are multi-valued: duplicate a task into each tag's group (untagged goes to "none")
-    if (this.groupBy === "tag") {
-      const out: Task[] = [];
-      for (const t of list) {
-        if (t.tags.length === 0) out.push({ ...t, groups: [none] });
-        else for (const tag of t.tags) out.push({ ...t, groups: [tag] });
-      }
-      return out;
-    }
-    // remap groups to a single synthetic group to reuse buildRows
-    const statusLabel = new Map(this.plugin.settings.statuses.map((s) => [s.id, s.label]));
-    return list.map((t) => {
-      const key =
-        this.groupBy === "status"
-          ? t.status ? statusLabel.get(t.status) ?? t.status : none
-          : t.assignee || none;
-      return { ...t, groups: [key] };
-    });
   }
 
   // scroll horizontally so the today marker is centered
