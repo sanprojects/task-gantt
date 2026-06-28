@@ -35,7 +35,6 @@ export interface ViewCtx {
   colLabel(id: ColumnId): string;
   toggleSort(id: ColumnId): void;
   autoFitColumn(id: ColumnId, nth: number, th: HTMLElement): void;
-  renderCell(td: HTMLElement, row: Row, id: ColumnId): void;
   setTbodyEl(el: HTMLElement): void;
 
   // Drag & drop / task mutations owned by the view.

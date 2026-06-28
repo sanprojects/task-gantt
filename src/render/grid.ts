@@ -8,6 +8,7 @@ import { hashColor, folderColor, tagColor } from "../color";
 import { t as tr } from "../i18n";
 import { ViewCtx } from "./context";
 import { realignSuccessors } from "./depAlign";
+import { renderCell } from "./dateEditor";
 
 // Timeline + table grid rendering and its in-SVG interactions (bar drag, dependency links).
 // All entry through renderGrid(ctx, main); everything else is internal to this module.
@@ -216,7 +217,7 @@ export function renderGrid(ctx: ViewCtx, main: HTMLElement): void {
         } else {
           const td = tr.createDiv({ cls: "ogantt-td" });
           td.style.width = `${ctx.colW(id)}px`;
-          ctx.renderCell(td, row, id);
+          renderCell(ctx, td, row, id);
         }
       }
       // single click = open the note in the sidebar; double click = open it in a new tab (same as the bars)
