@@ -9,8 +9,8 @@ import {
   createTask,
   reparentTask,
   subtreePaths,
-  combineDateTime,
   writeField,
+  writeDateRange,
   deleteTask,
   addTag,
   anchorStart,
@@ -975,38 +975,35 @@ export class GanttView extends ItemView {
     window.getSelection()?.addRange(range);
   }
 
-  private async createTaskInFolder(folderPath: string): Promise<void> {
-    const file = await createTask(this.app, folderPath, tr().newTaskName);
-    if (!file) return;
+  // Create a task in `folder` with start = end = today; returns the new file (or null).
+  private async createTaskWithToday(folder: string): Promise<TFile | null> {
+    const file = await createTask(this.app, folder, tr().newTaskName);
+    if (!file) return null;
     const k = this.plugin.settings.keys;
     const today = dayToStr(todayIndex());
     await writeField(this.app, file.path, k.start, today);
     await writeField(this.app, file.path, k.end, today);
+    return file;
+  }
+
+  // Create + refresh + start renaming inline. Shared by the toolbar button and group menus.
+  private async createTaskInFolder(folderPath: string): Promise<void> {
+    const file = await this.createTaskWithToday(folderPath);
+    if (!file) return;
     await this.refresh();
     this.startInlineEdit(file.path);
   }
 
-  private async createNewTask(): Promise<void> {
-    const file = await createTask(this.app, this.folder, tr().newTaskName);
-    if (!file) return;
-    const k = this.plugin.settings.keys;
-    const today = dayToStr(todayIndex());
-    await writeField(this.app, file.path, k.start, today);
-    await writeField(this.app, file.path, k.end, today);
-    await this.refresh();
-    this.startInlineEdit(file.path);
+  private createNewTask(): Promise<void> {
+    return this.createTaskInFolder(this.folder);
   }
 
   private async createSubtask(parentPath: string): Promise<void> {
-    const parentFolder = this.taskFolder(parentPath);
-    const file = await createTask(this.app, parentFolder, tr().newTaskName);
+    const file = await this.createTaskWithToday(this.taskFolder(parentPath));
     if (!file) return;
-    const k = this.plugin.settings.keys;
-    const today = dayToStr(todayIndex());
-    await writeField(this.app, file.path, k.start, today);
-    await writeField(this.app, file.path, k.end, today);
     const parentFile = this.app.vault.getAbstractFileByPath(parentPath);
     if (parentFile instanceof TFile) {
+      const k = this.plugin.settings.keys;
       await writeField(this.app, file.path, k.parent, this.app.fileManager.generateMarkdownLink(parentFile, file.path));
     }
     await this.refresh();
@@ -1184,7 +1181,6 @@ export class GanttView extends ItemView {
   // dates area: start & end chips side by side, each clearable with ×, click opens the range calendar
   private buildDates(meta: HTMLElement, t: Task): void {
     const fmt = this.plugin.settings.dateFormat;
-    const k = this.plugin.settings.keys;
     const state = { start: t.start ?? "", end: t.end ?? "" };
     // optional time of day, editable only when the date is set
     const times = { start: t.startTime ?? "", end: t.endTime ?? "" };
@@ -1207,9 +1203,7 @@ export class GanttView extends ItemView {
       }
       repaint(); // reflect any clamping right away
       await this.pushUndo(tr().undoReschedule(t.name)); // undoable
-      const tz = this.plugin.settings.tz;
-      await writeField(this.app, this.selectedPath, k.start, combineDateTime(state.start || undefined, times.start, tz));
-      await writeField(this.app, this.selectedPath, k.end, combineDateTime(state.end || undefined, times.end, tz));
+      await writeDateRange(this.app, this.plugin.settings, this.selectedPath, state.start, times.start, state.end, times.end);
       await this.refresh();
     };
 
@@ -1412,7 +1406,6 @@ export class GanttView extends ItemView {
 
   // open the range calendar from a table cell
   private openCellDatePicker(anchor: HTMLElement, t: Task, which: "start" | "end"): void {
-    const k = this.plugin.settings.keys;
     const state = { start: t.start ?? "", end: t.end ?? "" };
     const save = async (): Promise<void> => {
       // "start only" isn't valid: fill end = start
@@ -1422,9 +1415,7 @@ export class GanttView extends ItemView {
       let te = t.endTime;
       if (state.start && state.start === state.end && ts && te && te < ts) te = ts;
       await this.pushUndo(tr().undoReschedule(t.name)); // undoable
-      const tz = this.plugin.settings.tz;
-      await writeField(this.app, t.path, k.start, combineDateTime(state.start || undefined, ts, tz));
-      await writeField(this.app, t.path, k.end, combineDateTime(state.end || undefined, te, tz));
+      await writeDateRange(this.app, this.plugin.settings, t.path, state.start, ts, state.end, te);
       await this.refresh();
     };
     // no chip repaint needed here (save→refresh redraws)

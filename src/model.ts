@@ -357,6 +357,22 @@ export async function writeField(
   });
 }
 
+// Persist a task's start/end from the editor: each date is combined with its optional time-of-day
+// (a time gets the configured tz offset appended); an empty date clears the field.
+export async function writeDateRange(
+  app: App,
+  settings: GanttSettings,
+  path: string,
+  start: string | undefined,
+  startTime: string | undefined,
+  end: string | undefined,
+  endTime: string | undefined
+): Promise<void> {
+  const k = settings.keys;
+  await writeField(app, path, k.start, combineDateTime(start || undefined, startTime, settings.tz));
+  await writeField(app, path, k.end, combineDateTime(end || undefined, endTime, settings.tz));
+}
+
 // create a new task (.md with empty frontmatter) in the folder; de-duplicate the name with a counter
 export async function createTask(app: App, folderPath: string, baseName: string): Promise<TFile | null> {
   const dir = normalizePath(folderPath || "/");
