@@ -1,4 +1,4 @@
-/* ===== Gantt board (表＋タイムライン レイアウト / table + timeline layout) ===== */
+/* ===== Gantt board (table + timeline layout) ===== */
 .ogantt-board {
   display: flex;
   flex-direction: column;
@@ -18,7 +18,7 @@
 .ogantt-title {
   font-weight: 600;
 }
-/* ツールバーの伸縮スペーサー（右寄せ用）/ flexible spacer to push controls right */
+/* flexible spacer to push controls right */
 .ogantt-spacer {
   flex: 1;
 }
@@ -26,7 +26,7 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
-/* 全体進捗（右端のバー＋％）/ overall project progress (right-side mini bar + %) */
+/* overall project progress (right-side mini bar + %) */
 .ogantt-project-progress {
   display: inline-flex;
   align-items: center;
@@ -55,7 +55,7 @@
   min-width: 2.5em;
   text-align: right;
 }
-/* 新規タスク追加ボタン（アイコン＋ラベル）/ add-task button (icon + label) */
+/* add-task button (icon + label) */
 .ogantt-add {
   display: inline-flex;
   align-items: center;
@@ -70,7 +70,7 @@
   color: var(--text-muted);
 }
 
-/* 表示オプション行（グループ/色分け/フィルタ＋凡例）/ view options row + legend */
+/* view options row + legend */
 .ogantt-options {
   display: flex;
   flex-wrap: wrap;
@@ -88,7 +88,7 @@
 .ogantt-opt-label {
   color: var(--text-muted);
 }
-/* チェックボックス型オプション（ラベル全体がクリック可）/ checkbox-style option (whole label clickable) */
+/* checkbox-style option (whole label clickable) */
 .ogantt-opt-check {
   cursor: pointer;
   color: var(--text-muted);
@@ -97,7 +97,7 @@
   margin: 0;
   cursor: pointer;
 }
-/* 列の出し分け（歯車ボタン）/ column visibility gear button */
+/* column visibility gear button */
 .ogantt-opt-gear {
   display: inline-flex;
   align-items: center;
@@ -108,7 +108,7 @@
   width: 16px;
   height: 16px;
 }
-/* 列メニュー（ポップオーバー）/ column-visibility popover */
+/* column-visibility popover */
 .ogantt-colmenu {
   position: fixed;
   z-index: var(--layer-menu, 50);
@@ -137,14 +137,14 @@
   margin: 0;
   cursor: pointer;
 }
-/* ロールアップ（親＝子孫を含む集約）バー：通常バーと区別する薄い枠 / rollup (parent summary) bar */
+/* rollup (parent summary) bar */
 .ogantt-rollup-bar {
   opacity: 0.9;
   stroke: var(--text-on-accent);
   stroke-opacity: 0.35;
   stroke-width: 1.5;
 }
-/* ステータス列の色ドット / status column color dot */
+/* status column color dot */
 .ogantt-status-dot {
   display: inline-block;
   width: 9px;
@@ -154,16 +154,16 @@
   flex: none;
   vertical-align: middle;
 }
-/* 未設定ステータスのプレースホルダ（クリック可能な空セルの目印）/ placeholder for an unset, still-clickable status cell */
+/* placeholder for an unset, still-clickable status cell */
 .ogantt-status-empty {
   color: var(--text-faint);
 }
-/* ステータスセル：ドットとラベルを縦中央で揃える / status cell: center the dot + label on one line */
+/* status cell: center the dot + label on one line */
 .ogantt-td.ogantt-td-status {
   display: flex;
   align-items: center;
 }
-/* オプションのアイコン（意味はツールチップで補助）/ option icon (meaning via tooltip) */
+/* option icon (meaning via tooltip) */
 .ogantt-opt-ico {
   display: inline-flex;
   align-items: center;
@@ -173,7 +173,7 @@
   width: 16px;
   height: 16px;
 }
-/* 表示構成と絞り込みを分ける縦の区切り / vertical divider between layout and filters */
+/* vertical divider between layout and filters */
 .ogantt-opt-divider {
   width: 1px;
   align-self: stretch;
@@ -197,14 +197,14 @@
   align-items: center;
   gap: 4px;
 }
-/* ステータス/凡例フィルタの色は丸で統一（テーブルのドットと同じ見た目）/ legend-filter swatch is a circle, matching the table status dot */
+/* legend-filter swatch is a circle, matching the table status dot */
 .ogantt-legend-swatch {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   flex: none;
 }
-/* クリックでステータスを絞り込めるトグルチップ / clickable toggle chip for status filtering */
+/* clickable toggle chip for status filtering */
 .ogantt-legend-chip.is-toggle {
   cursor: pointer;
   padding: 1px 6px;
@@ -219,7 +219,7 @@
   outline: 1px solid var(--interactive-accent);
   outline-offset: 1px;
 }
-/* 外したステータスは退色＋スウォッチを白抜きにして「OFF」を明示 / dropped status: dimmed text + hollow swatch to read as "off" */
+/* dropped status: dimmed text + hollow swatch to read as "off" */
 .ogantt-legend-chip.is-off {
   opacity: 0.45;
   text-decoration: line-through;
@@ -229,7 +229,6 @@
   box-shadow: inset 0 0 0 1.5px currentColor;
 }
 
-/* 単一スクロール内の CSS グリッド。sticky で表ヘッダ・日付軸・左列を固定し行を揃える */
 /* CSS grid in one scroll container; sticky heads + left column keep rows aligned */
 .ogantt-host {
   flex: 1;
@@ -239,9 +238,7 @@
 .ogantt-main {
   flex: 1;
   min-height: 0;
-  /* 縦はスクロール可、横はバーを出さない。横移動はスワイプ/ズームで scrollLeft を直接動かすので、
-     overflow-x:hidden でも機能する（hidden はバーと"ユーザー操作"を消すだけ、プログラム的 scroll は有効）。
-     vertical scrolls; horizontal shows no bar. We pan horizontally by setting scrollLeft directly
+  /* vertical scrolls; horizontal shows no bar. We pan horizontally by setting scrollLeft directly
      (swipe/zoom), which still works under overflow-x:hidden (it only removes the bar + user scroll). */
   overflow-x: hidden;
   overflow-y: auto;
@@ -252,8 +249,7 @@
 }
 
 .ogantt-corner {
-  /* 縦は sticky で固定。横は CSS グリッドだと sticky がグリッド領域にクランプされ機能しないため JS の transform で固定（pinTableColumn）
-     vertical pin via sticky; horizontal sticky is clamped to the grid area in a CSS grid, so it's pinned by a JS transform (pinTableColumn) */
+  /* vertical pin via sticky; horizontal sticky is clamped to the grid area in a CSS grid, so it's pinned by a JS transform (pinTableColumn) */
   position: sticky;
   top: 0;
   z-index: 3;
@@ -278,7 +274,7 @@
   flex: 1;
   width: auto;
 }
-/* クリックでソートできる列ヘッダ / sortable column header */
+/* sortable column header */
 .ogantt-th-sortable {
   display: flex;
   align-items: center;
@@ -296,7 +292,7 @@
   font-size: 0.9em;
 }
 .ogantt-tbody {
-  /* 横スクロール追従は JS の transform で固定（grid の sticky-left はグリッド領域にクランプされ効かない）/ pinned horizontally by a JS transform (sticky-left is clamped to the grid area in a grid) */
+  /* pinned horizontally by a JS transform (sticky-left is clamped to the grid area in a grid) */
   position: relative;
   z-index: 1;
   grid-column: 1;
@@ -332,11 +328,11 @@
   fill: rgba(128, 128, 128, 0.12);
   pointer-events: none;
 }
-/* ドラッグ中の行 / row being dragged */
+/* row being dragged */
 .ogantt-tr.is-dragging {
   opacity: 0.45;
 }
-/* ドロップ先のハイライト（フォルダ/タスク行）/ drop-target highlight */
+/* drop-target highlight */
 .ogantt-tr.is-drop-target {
   background: var(--background-modifier-active-hover, var(--background-modifier-hover));
   box-shadow: inset 2px 0 0 var(--interactive-accent);
@@ -350,12 +346,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* マイルストーンの菱形マーカー（開始列）/ milestone diamond marker (start cell) */
+/* milestone diamond marker (start cell) */
 .ogantt-td-ms {
   color: var(--text-accent);
   font-weight: 600;
 }
-/* 親タスク行の折りたたみシェブロン枠（常に確保して名前位置を揃える）/ fixed chevron slot (keeps names aligned) */
+/* fixed chevron slot (keeps names aligned) */
 .ogantt-task-chevron {
   display: inline-flex;
   align-items: center;
@@ -375,7 +371,7 @@
 .ogantt-task-chevron.is-clickable:hover {
   color: var(--text-normal);
 }
-/* 詳細パネルの親タスク・チップ / parent chip in the detail panel */
+/* parent chip in the detail panel */
 .ogantt-parent-chip {
   display: inline-flex;
   align-items: center;
@@ -385,7 +381,7 @@
   border-radius: 999px;
   background: var(--background-secondary);
 }
-/* タグチップ（テーブル列・詳細パネル共通。色は JS でインライン指定）/ tag chips (color set inline in JS) */
+/* tag chips (color set inline in JS) */
 .ogantt-tag-chip {
   display: inline-flex;
   align-items: center;
@@ -414,7 +410,7 @@
   flex: 1;
   min-width: 80px;
 }
-/* ダブルクリックで日付編集できるセル / date cell editable via double-click */
+/* date cell editable via double-click */
 .ogantt-td-editable {
   cursor: pointer;
   border-radius: 4px;
@@ -457,7 +453,7 @@
   height: 15px;
 }
 
-/* ---- 右のタイムライン / right timeline ---- */
+/* ---- right timeline ---- */
 .ogantt-axis {
   position: sticky;
   top: 0;
@@ -524,7 +520,7 @@
 .ogantt-milestone:active {
   cursor: grabbing;
 }
-/* フォルダのまとめバー / group (folder) summary bar */
+/* group (folder) summary bar */
 .ogantt-group-bar {
   fill: var(--text-accent);
   opacity: 0.85;
@@ -533,7 +529,7 @@
   fill: var(--text-accent);
   opacity: 0.85;
 }
-/* バー内ラベル（左寄せ：期間＋名前）。期間は太字、名前は通常 / in-bar label (left-aligned: duration + name); duration bold, name regular */
+/* in-bar label (left-aligned: duration + name); duration bold, name regular */
 .ogantt-bar-intext {
   font-size: 10px;
   fill: #fff;
@@ -541,7 +537,7 @@
   dominant-baseline: middle;
   pointer-events: none;
   opacity: 0.92;
-  /* 暗いアウトラインで明るいバー上でも読みやすく / dark outline keeps it legible on light bars */
+  /* dark outline keeps it legible on light bars */
   paint-order: stroke;
   stroke: rgba(0, 0, 0, 0.25);
   stroke-width: 2px;
@@ -569,7 +565,7 @@
   fill: var(--color-red);
   opacity: 0.9;
 }
-/* 線のどこでもクリックで切断 / click anywhere on the line to remove */
+/* click anywhere on the line to remove */
 .ogantt-dep-hit {
   fill: none;
   stroke: transparent;
@@ -586,7 +582,7 @@
   fill: var(--color-red);
   opacity: 1;
 }
-/* ホバーで出る × 目印 / X marker on hover */
+/* X marker on hover */
 .ogantt-dep-x {
   opacity: 0;
   pointer-events: none;
@@ -604,7 +600,7 @@
   stroke-width: 1.6;
   stroke-linecap: round;
 }
-/* 依存タイプのラベル（SS/FF）/ dependency type label */
+/* dependency type label */
 .ogantt-dep-type {
   font-size: 9px;
   font-weight: 700;
@@ -613,7 +609,7 @@
   pointer-events: none;
 }
 
-/* 依存作成ハンドル / dependency connector handles */
+/* dependency connector handles */
 .ogantt-handle {
   fill: var(--background-primary);
   stroke: var(--interactive-accent);
@@ -621,7 +617,7 @@
   opacity: 0;
   cursor: crosshair;
 }
-/* ハンドルは専用レイヤー（最前面）にあり、表示は JS が is-visible で切替 / revealed via JS (handles live in the topmost layer) */
+/* revealed via JS (handles live in the topmost layer) */
 .ogantt-handle.is-visible {
   opacity: 1;
 }
@@ -638,13 +634,12 @@
   stroke-width: 2.5;
 }
 
-/* ネイティブ color ピッカー起動用の隠し input（画面外）/ hidden input used to trigger the native color picker (off-screen) */
+/* hidden input used to trigger the native color picker (off-screen) */
 .ogantt-hidden-color-input {
   position: fixed;
   left: -9999px;
 }
 
-/* 設定タブ: ステータス/タグ色の行は名前欄が無いので、空の info を畳んでコントロールを左から並べる */
 /* settings tab: status/tag-color rows have no name — collapse the empty info and left-align the controls */
 .setting-item.ogantt-setting-row .setting-item-info {
   display: none;
@@ -655,7 +650,7 @@
   width: 100%;
 }
 
-/* 削除確認ダイアログ / delete confirm dialog */
+/* delete confirm dialog */
 .ogantt-confirm-sub {
   color: var(--text-muted);
   font-size: 0.9em;
@@ -667,7 +662,7 @@
   margin-top: 16px;
 }
 
-/* ---- 自作カレンダー / custom calendar popup ---- */
+/* ---- custom calendar popup ---- */
 .ogantt-cal {
   position: fixed;
   z-index: 20;
@@ -698,7 +693,7 @@
 button.ogantt-cal-title:hover {
   background: var(--background-modifier-hover);
 }
-/* 年ビュー：12ヶ月グリッド / year view: 12-month grid */
+/* year view: 12-month grid */
 .ogantt-cal-months {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -725,7 +720,7 @@ button.ogantt-cal-title:hover {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
-/* 次に設定する端点（開始/終了）の表示 / hint: which endpoint the next click sets */
+/* hint: which endpoint the next click sets */
 .ogantt-cal-active {
   font-size: 0.74em;
   color: var(--text-accent);
@@ -761,12 +756,12 @@ button.ogantt-cal-title:hover {
 .ogantt-cal-day.is-today {
   box-shadow: inset 0 0 0 1px var(--interactive-accent);
 }
-/* 範囲の中間日（帯）/ days inside the range (band) */
+/* days inside the range (band) */
 .ogantt-cal-day.is-in-range {
   background: var(--background-modifier-hover);
   border-radius: 0;
 }
-/* 範囲の端点（開始・終了）/ range endpoints */
+/* range endpoints */
 .ogantt-cal-day.is-range-start,
 .ogantt-cal-day.is-range-end {
   background: var(--interactive-accent);
@@ -781,7 +776,7 @@ button.ogantt-cal-title:hover {
   font-size: 0.78em;
 }
 
-/* 列幅リサイズグリップ（ヘッダ右端）/ column resize grip on the header right edge */
+/* column resize grip on the header right edge */
 .ogantt-th {
   position: relative;
 }
@@ -797,15 +792,13 @@ button.ogantt-cal-title:hover {
   background: var(--interactive-accent);
   opacity: 0.4;
 }
-/* 列の縦罫線 / vertical column gridlines */
+/* vertical column gridlines */
 .ogantt-th:not(:last-child),
 .ogantt-tr > .ogantt-td:not(:last-child) {
   border-right: 1px solid var(--background-modifier-border);
 }
 
-/* 自動フィット計測用（一時付与。計測中はインライン幅を外すので !important 不要。
-   2クラスの詳細度で .ogantt-th / .ogantt-td-name の flex 指定に勝つ）
-   temporary class for auto-fit measurement: inline widths are removed while measuring,
+/* temporary class for auto-fit measurement: inline widths are removed while measuring,
    and the two-class specificity beats the .ogantt-th / .ogantt-td-name flex rules */
 .ogantt-th.ogantt-measure,
 .ogantt-td.ogantt-measure {
