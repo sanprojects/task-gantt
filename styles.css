@@ -530,40 +530,49 @@
   opacity: 0.85;
 }
 /* in-bar label (left-aligned: duration + name); duration bold, name regular */
+/* white copy, clipped to the bar (legible on colored bars) */
 .ogantt-bar-intext {
-  font-size: 10px;
+  font-size: 12px;
   fill: #fff;
   text-anchor: start;
   dominant-baseline: middle;
   pointer-events: none;
-  opacity: 0.92;
-  /* dark outline keeps it legible on light bars */
   paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.25);
+  stroke: rgb(0 0 0 / 41%);
   stroke-width: 2px;
+  stroke-linejoin: round;
 }
-.ogantt-bar-intext.is-dur {
-  font-weight: 600;
+/* base copy in normal text color, shown where the label spills past the bar onto the grid background */
+.ogantt-bar-outtext {
+  font-size: 12px;
+  fill: var(--text-normal);
+  text-anchor: start;
+  dominant-baseline: middle;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--background-primary);
+  stroke-width: 0px;
+  stroke-linejoin: round;
 }
 .ogantt-dep {
-  fill: none;
-  stroke: var(--text-normal);
-  opacity: 0.55;
-  stroke-width: 1.8;
-  pointer-events: none;
+fill: none;
+stroke: var(--text-normal);
+opacity: 0.55;
+stroke-width: 1.8;
+pointer-events: none;
 }
 .ogantt-dep.is-violation {
-  stroke: var(--color-red);
-  opacity: 0.9;
+stroke: var(--color-red);
+opacity: 0.9;
 }
 .ogantt-dep-arrow {
-  fill: var(--text-normal);
-  opacity: 0.55;
-  pointer-events: none;
+fill: var(--text-normal);
+opacity: 0.55;
+pointer-events: none;
 }
 .ogantt-dep-arrow.is-violation {
-  fill: var(--color-red);
-  opacity: 0.9;
+fill: var(--color-red);
+opacity: 0.9;
 }
 /* click anywhere on the line to remove */
 .ogantt-dep-hit {

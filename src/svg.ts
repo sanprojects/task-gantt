@@ -1,4 +1,4 @@
-// SVG element factory plus in-bar text measurement and labeling helpers.
+// SVG element factory plus the in-bar label helper.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -9,58 +9,24 @@ export function svgEl(tag: string, attrs: Record<string, string | number>): SVGE
   return el;
 }
 
-// Measures in-bar text width via a canvas (works before attach, triggers no reflow).
-// The font family is read lazily from a host element, so it reflects the active theme.
-export class TextMeasurer {
-  private ctx: CanvasRenderingContext2D | null = null;
-  private family = "";
-  constructor(private host: () => HTMLElement) {}
+let labelClip = 0; // unique clipPath id per label
 
-  width(s: string, weight: number): number {
-    if (!this.ctx) this.ctx = activeDocument.createElement("canvas").getContext("2d");
-    if (!this.family) this.family = getComputedStyle(this.host()).fontFamily || "sans-serif";
-    const ctx = this.ctx;
-    if (!ctx) return s.length * 6; // rough estimate if canvas is unavailable
-    ctx.font = `${weight} 10px ${this.family}`;
-    return ctx.measureText(s).width;
-  }
-
-  // Truncate the name tail with … to fit maxWidth (binary search to limit measurements).
-  fitName(name: string, maxWidth: number): string {
-    if (this.width(name, 400) <= maxWidth) return name;
-    let lo = 0, hi = name.length;
-    while (lo < hi) {
-      const mid = Math.ceil((lo + hi) / 2);
-      if (this.width(name.slice(0, mid) + "…", 400) <= maxWidth) lo = mid; else hi = mid - 1;
-    }
-    return lo > 0 ? name.slice(0, lo) + "…" : "";
-  }
-}
-
-// Draw the in-bar label "<days>d  <name(…)>", left-aligned; omit the name (or all of it) if too narrow.
-export function drawBarLabel(
-  measurer: TextMeasurer,
-  parent: SVGElement,
-  x: number,
-  w: number,
-  cy: number,
-  days: number,
-  name: string
-): void {
-  if (w < 22) return; // too small even for the duration
-  const PAD = 6, GAP = 6;
-  const durStr = `${days}d`;
-  const durW = measurer.width(durStr, 600);
-  const dur = svgEl("text", { x: x + PAD, y: cy, class: "ogantt-bar-intext is-dur" });
-  dur.textContent = durStr;
-  parent.appendChild(dur);
-  const avail = w - PAD - durW - GAP - PAD; // width left for the name
-  if (avail < 16) return; // too narrow for a name, show the duration only
-  const shown = measurer.fitName(name, avail);
-  if (!shown) return;
-  const nm = svgEl("text", { x: x + PAD + durW + GAP, y: cy, class: "ogantt-bar-intext" });
-  nm.textContent = shown;
-  parent.appendChild(nm);
+// Draw the label "<days>d  <name>" starting inside the bar; it continues past the bar's right edge.
+// Drawn twice: a normal-color base (legible on the grid background) plus a white copy clipped to the
+// bar rect, so the text is white over the bar and switches to normal text color where it spills out.
+export function drawBarLabel(parent: SVGElement, x: number, y: number, w: number, h: number, days: number, name: string): void {
+  const text = `${days}d  ${name}`;
+  const tx = x + 6, cy = y + h / 2;
+  const base = svgEl("text", { x: tx, y: cy, class: "ogantt-bar-outtext" });
+  base.textContent = text;
+  parent.appendChild(base);
+  const id = `ogantt-barclip-${labelClip++}`;
+  const clip = svgEl("clipPath", { id });
+  clip.appendChild(svgEl("rect", { x, y, width: w, height: h }));
+  parent.appendChild(clip);
+  const over = svgEl("text", { x: tx, y: cy, class: "ogantt-bar-intext", "clip-path": `url(#${id})` });
+  over.textContent = text;
+  parent.appendChild(over);
 }
 
 // Build an SVG path from points, lightly rounding the right-angle elbows.

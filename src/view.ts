@@ -37,7 +37,7 @@ import {
 } from "./viewConstants";
 import { hashColor, tagColor, folderColor } from "./color";
 import { ConfirmModal } from "./confirmModal";
-import { TextMeasurer, svgEl } from "./svg";
+import { svgEl } from "./svg";
 import { openPopover } from "./dom/popover";
 import { legendChip } from "./dom/legendChip";
 import { ViewCtx } from "./render/context";
@@ -71,8 +71,6 @@ export class GanttView extends ItemView {
   private customPpd: number | null = null;
   private wheelRAF = 0; // coalesce wheel bursts to one rerender per frame
   private wheelRouter = new WheelGestureRouter(); // routes a gesture to an axis (x=scroll, y=zoom)
-  // In-bar label text measurer; reads the font family lazily from the grid host (set after attach).
-  private measurer = new TextMeasurer(() => this.gridHost);
   private selectedPath: string | null = null;
   private folder = ""; // scoped folder path
   private collapsed = new Set<string>(); // collapsed folder keys
@@ -885,7 +883,7 @@ export class GanttView extends ItemView {
 
   // Seam handed to the render/* modules: live getters for mutable state, bound callbacks for
   // view-owned behavior. Built once and reused across renders — the getters always read current
-  // state and the captured refs (app/plugin/measurer/dragged) are never reassigned.
+  // state and the captured refs (app/plugin/dragged) are never reassigned.
   private cachedCtx?: ViewCtx;
   private ctx(): ViewCtx {
     if (this.cachedCtx) return this.cachedCtx;
@@ -893,7 +891,6 @@ export class GanttView extends ItemView {
     return (this.cachedCtx = {
       app: this.app,
       plugin: this.plugin,
-      measurer: this.measurer,
       dragged: this.dragged,
       get range() { return self.range; },
       get ppd() { return self.ppd; },

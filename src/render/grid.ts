@@ -317,7 +317,7 @@ function drawBars(ctx: ViewCtx, svg: SVGElement, handlesLayer: SVGElement): void
       const rg = svgEl("g", { class: "ogantt-bar-g ogantt-rollup-g", "data-path": t.path }) as SVGGElement;
       rg.appendChild(svgEl("rect", { x: sx, y: yy, width: sw, height: hh, rx: 4, class: "ogantt-bar ogantt-rollup-bar", fill: c }));
       const sdays = dayIndex(row.span.end) - dayIndex(row.span.start) + 1;
-      drawBarLabel(ctx.measurer, rg, sx, sw, i * ROW_H + ROW_H / 2, sdays, t.name);
+      drawBarLabel(rg, sx, yy, sw, hh, sdays, t.name);
       rg.addEventListener("click", (ev) => { ev.stopPropagation(); ctx.activateTask(t.path, ev); });
       rg.addEventListener("dblclick", (ev) => { ev.stopPropagation(); ctx.openTaskNote(t.path); });
       svg.appendChild(rg);
@@ -360,9 +360,9 @@ function drawBars(ctx: ViewCtx, svg: SVGElement, handlesLayer: SVGElement): void
         const pw = (w * Math.min(100, t.progress)) / 100;
         g.appendChild(svgEl("rect", { x, y, width: pw, height: h, rx: 4, class: "ogantt-bar-progress" }));
       }
-      // in-bar label "<days>d  <name>", name truncated with … to fit
+      // label "<days>d  <name>" starting in the bar, continuing past its edge
       const days = dayIndex(endStr) - dayIndex(aStart) + 1;
-      drawBarLabel(ctx.measurer, g, x, w, cyText(i), days, t.name);
+      drawBarLabel(g, x, y, w, h, days, t.name);
       attachDrag(ctx, g, rect, t);
       // ew-resize near edges, grab in the middle
       rect.addEventListener("mousemove", (e: MouseEvent) => {
@@ -401,11 +401,6 @@ function drawBars(ctx: ViewCtx, svg: SVGElement, handlesLayer: SVGElement): void
     });
     svg.appendChild(g);
   });
-
-  function cyText(i: number): number {
-    // the label CSS centers text on its y (dominant-baseline:middle), so return the exact row center; the old +4 sat below the bar's center
-    return i * ROW_H + ROW_H / 2;
-  }
 }
 
 // drag from a handle to another task = create dependency
@@ -590,11 +585,13 @@ function drawDependencies(ctx: ViewCtx, svg: SVGElement): void {
   }
 }
 
-// redraw the whole in-bar label (duration + name) while dragging; reuses drawBarLabel so it matches the static render exactly
-function liveBarLabel(ctx: ViewCtx, g: SVGGElement, rect: SVGElement, x: number, w: number, days: number, name: string): void {
-  g.querySelectorAll(".ogantt-bar-intext").forEach((el) => el.remove());
-  const cy = parseFloat(rect.getAttribute("y")!) + parseFloat(rect.getAttribute("height")!) / 2;
-  drawBarLabel(ctx.measurer, g, x, w, cy, days, name);
+// redraw the label while dragging; reuses drawBarLabel so it matches the static render exactly
+function liveBarLabel(g: SVGGElement, rect: SVGElement, x: number, days: number, name: string): void {
+  g.querySelectorAll(".ogantt-bar-intext, .ogantt-bar-outtext, clipPath").forEach((el) => el.remove());
+  const y = parseFloat(rect.getAttribute("y")!);
+  const w = parseFloat(rect.getAttribute("width")!);
+  const h = parseFloat(rect.getAttribute("height")!);
+  drawBarLabel(g, x, y, w, h, days, name);
 }
 
 // drag a bar or diamond to reschedule
@@ -639,7 +636,7 @@ function attachDrag(ctx: ViewCtx, g: SVGGElement, handle: SVGElement, task: Task
       const nx = parseFloat(handle.getAttribute("x")!);
       const nw = parseFloat(handle.getAttribute("width")!);
       const days = Math.max(1, Math.round(nw / ctx.ppd));
-      liveBarLabel(ctx, g, handle, nx, nw, days, task.name);
+      liveBarLabel(g, handle, nx, days, task.name);
       ctx.updateProjectProgress({ path: task.path, days });
     };
     const onUp = (e: PointerEvent) => void (async () => {
@@ -685,7 +682,7 @@ function attachDrag(ctx: ViewCtx, g: SVGGElement, handle: SVGElement, task: Task
           handle.setAttribute("x", String(x0));
           handle.setAttribute("width", String(w0));
           // revert the live-updated in-bar label and overall progress too
-          liveBarLabel(ctx, g, handle, x0, w0, Math.max(1, Math.round(w0 / ctx.ppd)), task.name);
+          liveBarLabel(g, handle, x0, Math.max(1, Math.round(w0 / ctx.ppd)), task.name);
           ctx.updateProjectProgress();
         }
       }

@@ -2,7 +2,6 @@ import { App } from "obsidian";
 import type GanttPlugin from "../main";
 import { Task, Row, ZoomMode } from "../types";
 import { DateRange } from "../timeline";
-import { TextMeasurer } from "../svg";
 import { ColumnId } from "../viewConstants";
 
 // The seam between GanttView and the render/* modules. The view builds one of these
@@ -12,7 +11,6 @@ export interface ViewCtx {
   // Long-lived references.
   app: App;
   plugin: GanttPlugin;
-  measurer: TextMeasurer;
   dragged: WeakMap<SVGGElement, boolean>; // bars dragged this gesture (suppresses the trailing click)
 
   // Live view state (getters, so handlers attached during a render always read current values).
