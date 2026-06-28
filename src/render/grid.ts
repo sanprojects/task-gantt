@@ -169,7 +169,7 @@ export function renderGrid(ctx: ViewCtx, main: HTMLElement): void {
             setIcon(chev, ctx.collapsed.has(key) ? "chevron-right" : "chevron-down");
             chev.addClass("is-clickable");
             chev.addEventListener("click", (e) => {
-              e.stopPropagation(); // don't open the detail panel
+              e.stopPropagation(); // don't trigger the row's open-note click
               if (ctx.collapsed.has(key)) ctx.collapsed.delete(key);
               else ctx.collapsed.add(key);
               void ctx.refresh();
@@ -219,7 +219,7 @@ export function renderGrid(ctx: ViewCtx, main: HTMLElement): void {
           ctx.renderCell(td, row, id);
         }
       }
-      // single click = detail panel; double click = open the note in a new tab (same as the bars)
+      // single click = open the note in the sidebar; double click = open it in a new tab (same as the bars)
       tr.addEventListener("click", (ev) => ctx.activateTask(t.path, ev));
       tr.addEventListener("dblclick", () => ctx.openTaskNote(t.path));
       if (ctx.groupBy === "folder") {
@@ -388,7 +388,7 @@ function drawBars(ctx: ViewCtx, svg: SVGElement, handlesLayer: SVGElement): void
     g.addEventListener("mouseenter", () => handles.forEach((h) => h.classList.add("is-visible")));
     g.addEventListener("mouseleave", () => handles.forEach((h) => h.classList.remove("is-visible")));
 
-    // single click = side detail panel (opens instantly); double click = note in a new tab; suppressed right after a drag.
+    // single click = open the note in the sidebar; double click = open it in a new tab; suppressed right after a drag.
     g.addEventListener("click", (ev) => {
       ev.stopPropagation();
       if (ctx.dragged.get(g)) return; // it was a drag, not a click
@@ -677,7 +677,7 @@ function attachDrag(ctx: ViewCtx, g: SVGGElement, handle: SVGElement, task: Task
         ctx.rerender();
       } else {
         // No day change = a click: reset any sub-threshold movement without re-rendering,
-        // so the element survives and click/dblclick fire to open the detail panel.
+        // so the element survives and click/dblclick fire to open the note.
         if (milestone) {
           g.removeAttribute("transform");
         } else {

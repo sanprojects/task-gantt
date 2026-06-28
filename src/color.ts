@@ -28,7 +28,7 @@ export function folderColor(settings: GanttSettings, name: string): string {
   return settings.folderColors.find((c) => c.name === name)?.color || hashColor(name);
 }
 
-// Paint a tag chip (border + faint background + text); shared by the table column and the detail panel.
+// Paint a tag chip (border + faint background + text); used by the table tags column.
 export function paintTagChip(settings: GanttSettings, chip: HTMLElement, tag: string): void {
   const c = tagColor(settings, tag);
   chip.style.borderColor = c;

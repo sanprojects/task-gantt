@@ -570,7 +570,7 @@ export class GanttView extends ItemView {
     add.createSpan({ cls: "ogantt-add-label", text: tr().newTaskName });
     add.setAttr("aria-label", tr().newTaskAria);
     add.onclick = () => void this.createNewTask();
-    // keep the following controls left-packed next to "+" (so the detail panel can't hide them)
+    // keep the following controls left-packed next to the "+" button
     // scroll to today
     const todayBtn = bar.createEl("button", { cls: "ogantt-today-btn", text: tr().today });
     todayBtn.onclick = () => this.scrollToToday();
@@ -1236,7 +1236,7 @@ export class GanttView extends ItemView {
   private makeDateCell(cell: HTMLElement, t: Task, which: "start" | "end"): void {
     cell.addClass("ogantt-td-editable");
     cell.setAttr("aria-label", tr().pickDate);
-    // a single click here edits dates, not opens detail
+    // a single click here edits dates, not the row's open-note click
     cell.addEventListener("click", (e) => e.stopPropagation());
     cell.addEventListener("dblclick", (e) => {
       e.stopPropagation();
@@ -1248,7 +1248,7 @@ export class GanttView extends ItemView {
   private makeStatusCell(cell: HTMLElement, t: Task): void {
     cell.addClass("ogantt-td-editable");
     cell.setAttr("aria-label", tr().fieldStatus);
-    // a click here picks a status, not opens detail
+    // a click here picks a status, not the row's open-note click
     cell.addEventListener("click", (e) => {
       e.stopPropagation();
       this.openStatusMenu(cell, t);
@@ -1288,8 +1288,7 @@ export class GanttView extends ItemView {
       await writeDateRange(this.app, this.plugin.settings, t.path, state.start, ts, state.end, te);
       await this.refresh();
     };
-    // no chip repaint needed here (save→refresh redraws)
-    this.openRangePicker(anchor, state, which, () => {}, save);
+    this.openRangePicker(anchor, state, which, save);
   }
 
   // range calendar: pick start & end in one popup; month nav ← →, theme-aware
@@ -1297,7 +1296,6 @@ export class GanttView extends ItemView {
     anchor: HTMLElement,
     state: { start: string; end: string },
     active: "start" | "end",
-    repaint: () => void,
     save: () => void | Promise<void>
   ): void {
     openPopover({ cls: "ogantt-cal", anchor, flip: true }, (cal) => {
@@ -1321,7 +1319,6 @@ export class GanttView extends ItemView {
           state.end = state.start && ds < state.start ? state.start : ds;
           act = "start";
         }
-        repaint();
         void save();
         render();
       };
@@ -1365,7 +1362,7 @@ export class GanttView extends ItemView {
           pick(todayStr);
         };
         const clearBtn = foot.createEl("button", { text: tr().clearDate });
-        clearBtn.onclick = () => { state[act] = ""; repaint(); void save(); render(); };
+        clearBtn.onclick = () => { state[act] = ""; void save(); render(); };
       };
 
       const renderYear = () => {

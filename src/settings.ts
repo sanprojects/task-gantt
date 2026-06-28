@@ -55,7 +55,6 @@ export interface GanttSettings {
   dateFormat: DateFormat; // display-only date format
   // timezone for displaying/saving times: "system" (device) or a fixed GMT offset like "+09:00"
   tz: string;
-  detailWidth: number; // detail panel width (px)
   visibleColumns: string[]; // optional columns shown (name is always shown)
   columnWidths: Record<string, number>; // per-column width overrides (px); unset = default
   sortBy: string; // sort column id
@@ -99,7 +98,6 @@ export const DEFAULT_SETTINGS: GanttSettings = {
   defaultZoom: "Week",
   dateFormat: "YYYY/MM/DD",
   tz: "system",
-  detailWidth: 380,
   visibleColumns: ["start", "end"],
   columnWidths: {},
   sortBy: "start",
