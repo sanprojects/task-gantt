@@ -415,6 +415,15 @@ export async function writeDateRange(
   await writeField(app, path, k.end, combineDateTime(end || undefined, endTime, settings.tz));
 }
 
+// read the body (without frontmatter)
+export async function readBody(app: App, path: string): Promise<string> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return "";
+  const text = await app.vault.read(file);
+  // strip the leading frontmatter block
+  return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+}
+
 // create a new task (.md with empty frontmatter) in the folder; de-duplicate the name with a counter
 export async function createTask(app: App, folderPath: string, baseName: string): Promise<TFile | null> {
   const dir = normalizePath(folderPath || "/");

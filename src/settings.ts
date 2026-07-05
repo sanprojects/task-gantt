@@ -1,8 +1,11 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import type GanttPlugin from "./main";
 import { StatusDef, ZoomMode, DateFormat } from "./types";
 import { t as tr } from "./i18n";
 import { LEADS, leadLabel, sendTestNotification } from "./notify";
+import { connectGoogle, disconnectGoogle, isConnected } from "./gcal/auth";
+import { listCalendars } from "./gcal/api";
+import { syncGcal } from "./gcal/sync";
 
 // timezone list (real offsets only, with representative cities)
 const TZ_CITIES: [string, string][] = [
@@ -66,12 +69,32 @@ export interface GanttSettings {
   notify: {
     discordWebhook: string; // empty disables
     slackWebhook: string;
+    teamsWebhook: string; // Power Automate Workflows webhook
     notifyStart: boolean; // notify for start
     notifyEnd: boolean; // notify for due
     leads: string[]; // enabled lead ids
     sent: Record<string, number>; // sent keys → timestamp (dedupe)
   };
   sidebarLeafId?: string; // persisted right-sidebar leaf id (reused across reloads)
+  // Google Calendar two-way sync
+  gcal: {
+    clientId: string; // the user's own GCP OAuth client
+    clientSecret: string;
+    refreshToken: string; // empty = not connected; stored in plain text in data.json (disclosed in README)
+    calendarId: string; // target calendar
+    calendarName: string; // display only
+    pushEnabled: boolean; // task → GCal
+    pullEnabled: boolean; // GCal → task
+    optInOnly: boolean; // only tasks carrying the opt-in flag
+    scopeFolder: string; // empty = follow the default folder
+    pullIntervalMin: number; // pull interval in minutes
+    deleteEventOnTaskDelete: boolean;
+    onEventDeleted: "unlink" | "clearDates"; // behavior when the event is deleted remotely
+    syncToken: string; // incremental pull token
+    lastSync: number; // last successful sync (epoch ms)
+    lastError: string; // latest error, shown in settings
+    state: Record<string, GcalSyncState>; // path → sync snapshot
+  };
   // frontmatter key names
   keys: {
     start: string;
@@ -82,7 +105,18 @@ export interface GanttSettings {
     progress: string;
     milestone: string;
     parent: string;
+    gcalId: string; // where the event id is stored
+    gcal: string; // the opt-in flag
   };
+}
+
+// per-task sync snapshot (drives loop prevention and change detection)
+export interface GcalSyncState {
+  id: string; // event id
+  hash: string; // local fingerprint at last sync
+  etag: string; // event etag at last sync (echo detection)
+  at: number; // synced at (epoch ms)
+  link?: string; // the event's htmlLink
 }
 
 export const DEFAULT_SETTINGS: GanttSettings = {
@@ -107,10 +141,29 @@ export const DEFAULT_SETTINGS: GanttSettings = {
   notify: {
     discordWebhook: "",
     slackWebhook: "",
+    teamsWebhook: "",
     notifyStart: true,
     notifyEnd: true,
     leads: ["1d", "1h", "10m"],
     sent: {},
+  },
+  gcal: {
+    clientId: "",
+    clientSecret: "",
+    refreshToken: "",
+    calendarId: "",
+    calendarName: "",
+    pushEnabled: true,
+    pullEnabled: true,
+    optInOnly: true,
+    scopeFolder: "",
+    pullIntervalMin: 5,
+    deleteEventOnTaskDelete: true,
+    onEventDeleted: "unlink",
+    syncToken: "",
+    lastSync: 0,
+    lastError: "",
+    state: {},
   },
   keys: {
     start: "start",
@@ -121,6 +174,8 @@ export const DEFAULT_SETTINGS: GanttSettings = {
     progress: "progress",
     milestone: "milestone",
     parent: "parent",
+    gcalId: "gcalId",
+    gcal: "gcal",
   },
 };
 
@@ -200,7 +255,7 @@ export class GanttSettingTab extends PluginSettingTab {
     setting.addText((t) => t.setValue(s.keys[k]).onChange((v) => { s.keys[k] = v.trim() || k; this.save(); }));
   }
 
-  private ctlWebhook(setting: Setting, key: "discordWebhook" | "slackWebhook", placeholder: string): void {
+  private ctlWebhook(setting: Setting, key: "discordWebhook" | "slackWebhook" | "teamsWebhook", placeholder: string): void {
     const n = this.plugin.settings.notify;
     setting.addText((t) => t.setPlaceholder(placeholder).setValue(n[key]).onChange((v) => { n[key] = v.trim(); this.save(); }));
   }
@@ -217,6 +272,121 @@ export class GanttSettingTab extends PluginSettingTab {
         n.leads = v ? [...new Set([...n.leads, id])] : n.leads.filter((x) => x !== id);
         this.save();
       })
+    );
+  }
+
+  // ===== the Google Calendar sync section =====
+  private drawGcal(containerEl: HTMLElement): void {
+    const g = this.plugin.settings.gcal;
+    const connected = isConnected(this.plugin);
+
+    new Setting(containerEl).setName(tr().setGcalHeading).setDesc(tr().setGcalDesc).setHeading();
+
+    // mobile gets a note only (no loopback auth)
+    if (!Platform.isDesktop) {
+      new Setting(containerEl).setDesc(tr().gcalDesktopOnly);
+      return;
+    }
+
+    // credentials (the secret uses a password input)
+    new Setting(containerEl).setName(tr().setGcalClientIdName).setDesc(tr().setGcalCredsDesc).addText((t) =>
+      t.setValue(g.clientId).onChange((v) => { g.clientId = v.trim(); this.save(); })
+    );
+    new Setting(containerEl).setName(tr().setGcalClientSecretName).addText((t) => {
+      t.inputEl.type = "password";
+      t.setValue(g.clientSecret).onChange((v) => { g.clientSecret = v.trim(); this.save(); });
+    });
+
+    // connect / disconnect with the status in the description
+    new Setting(containerEl)
+      .setName(tr().setGcalAccountName)
+      .setDesc(connected ? tr().gcalStatusConnected : tr().gcalStatusNotConnected)
+      .addButton((b) => {
+        if (connected) {
+          // setDestructive() requires @since 1.13.0, incompatible with minAppVersion 1.7.2 (trips no-unsupported-api).
+          // setWarning() is @deprecated but only a non-blocking Recommendation, so it's kept here instead.
+          b.setButtonText(tr().setGcalDisconnect).setWarning().onClick(() => void (async () => {
+            await disconnectGoogle(this.plugin);
+            this.draw();
+          })());
+        } else {
+          b.setButtonText(tr().setGcalConnect).setCta().onClick(() => void (async () => {
+            const ok = await connectGoogle(this.plugin);
+            if (ok) this.draw();
+          })());
+        }
+      });
+
+    if (!connected) return; // the rest only makes sense once connected
+
+    // target calendar (the list loads asynchronously)
+    new Setting(containerEl).setName(tr().setGcalCalendarName).addDropdown((d) => {
+      if (g.calendarId) d.addOption(g.calendarId, g.calendarName || g.calendarId);
+      else d.addOption("", "—");
+      d.setValue(g.calendarId);
+      void listCalendars(this.plugin)
+        .then((cals) => {
+          d.selectEl.empty();
+          if (!g.calendarId) d.addOption("", "—");
+          for (const c of cals) d.addOption(c.id, c.summary + (c.primary ? " ★" : ""));
+          d.setValue(g.calendarId);
+          d.onChange((v) => {
+            g.calendarId = v;
+            g.calendarName = cals.find((c) => c.id === v)?.summary ?? v;
+            // switching calendars resets the sync state
+            g.syncToken = "";
+            g.state = {};
+            this.save();
+          });
+        })
+        .catch((e) => console.error("Task Gantt: calendar list failed", e));
+    });
+
+    // directions & scope
+    new Setting(containerEl).setName(tr().setGcalPushName).addToggle((t) =>
+      t.setValue(g.pushEnabled).onChange((v) => { g.pushEnabled = v; this.save(); })
+    );
+    new Setting(containerEl).setName(tr().setGcalPullName).addToggle((t) =>
+      t.setValue(g.pullEnabled).onChange((v) => { g.pullEnabled = v; this.save(); })
+    );
+    new Setting(containerEl)
+      .setName(tr().setGcalOptInName)
+      .setDesc(tr().setGcalOptInDesc(this.plugin.settings.keys.gcal))
+      .addToggle((t) => t.setValue(g.optInOnly).onChange((v) => { g.optInOnly = v; this.save(); }));
+    new Setting(containerEl).setName(tr().setGcalScopeName).setDesc(tr().setGcalScopeDesc).addText((t) =>
+      t.setPlaceholder(tr().setDefaultFolderPlaceholder).setValue(g.scopeFolder).onChange((v) => {
+        g.scopeFolder = v.trim();
+        this.save();
+      })
+    );
+
+    // interval & deletion policies
+    new Setting(containerEl).setName(tr().setGcalPullIntervalName).addDropdown((d) => {
+      for (const m of [1, 5, 10, 30, 60]) d.addOption(String(m), String(m));
+      d.setValue(String(g.pullIntervalMin)).onChange((v) => { g.pullIntervalMin = Number(v); this.save(); });
+    });
+    new Setting(containerEl).setName(tr().setGcalDeleteEventName).addToggle((t) =>
+      t.setValue(g.deleteEventOnTaskDelete).onChange((v) => { g.deleteEventOnTaskDelete = v; this.save(); })
+    );
+    new Setting(containerEl).setName(tr().setGcalOnEventDeletedName).addDropdown((d) =>
+      d
+        .addOptions({ unlink: tr().gcalUnlinkOption, clearDates: tr().gcalClearDatesOption })
+        .setValue(g.onEventDeleted)
+        .onChange((v) => { g.onEventDeleted = v as "unlink" | "clearDates"; this.save(); })
+    );
+
+    // sync-now with the last-sync time and any error
+    const status = g.lastError
+      ? `⚠️ ${g.lastError}`
+      : g.lastSync
+        ? tr().gcalLastSync(new Date(g.lastSync).toLocaleString())
+        : "";
+    new Setting(containerEl).setName(tr().setGcalSyncNow).setDesc(status).addButton((b) =>
+      b.setButtonText(tr().setGcalSyncNow).onClick(() => void (async () => {
+        const ok = await syncGcal(this.plugin, { pull: true });
+        new Notice(ok ? tr().gcalSyncDone : `⚠️ ${g.lastError || "(console)"}`);
+        this.draw();
+      })())
     );
   }
 
@@ -293,6 +463,11 @@ export class GanttSettingTab extends PluginSettingTab {
       "slackWebhook",
       "https://hooks.slack.com/services/…"
     );
+    this.ctlWebhook(
+      new Setting(containerEl).setName("Microsoft Teams webhook URL (Workflows)").setDesc(tr().setWebhookDesc),
+      "teamsWebhook",
+      "https://….logic.azure.com/workflows/…"
+    );
     // send-a-test button for instant webhook verification
     new Setting(containerEl).addButton((b) =>
       b.setButtonText(tr().setNotifyTestName).onClick(() => void sendTestNotification(this.plugin))
@@ -303,6 +478,9 @@ export class GanttSettingTab extends PluginSettingTab {
     for (const lead of LEADS) {
       this.ctlLeadToggle(new Setting(containerEl).setName(leadLabel(lead.id)), lead.id);
     }
+
+    // Google Calendar sync
+    this.drawGcal(containerEl);
 
     // frontmatter key names
     new Setting(containerEl).setName(tr().setKeysHeading).setHeading();

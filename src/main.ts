@@ -4,10 +4,12 @@ import { GanttView } from "./view";
 import { VIEW_TYPE_GANTT, GanttViewState } from "./types";
 import { t } from "./i18n";
 import { checkNotifications } from "./notify";
+import { migrateRenamedPath, schedulePush, syncGcal } from "./gcal/sync";
 
 export default class GanttPlugin extends Plugin {
   settings!: GanttSettings;
   private lastNotifyCheck = 0; // last notification check (epoch ms)
+  private lastGcalPull = 0; // last Google Calendar pull (epoch ms)
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -41,6 +43,29 @@ export default class GanttPlugin extends Plugin {
 
     this.addSettingTab(new GanttSettingTab(this.app, this));
 
+    this.addCommand({
+      id: "gcal-sync-now",
+      name: `${t().setGcalHeading}: ${t().setGcalSyncNow}`,
+      callback: () => void syncGcal(this, { pull: true }),
+    });
+
+    // debounce local edits into a push (scope and diffing are handled by the sync engine)
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
+        if (file.extension === "md") schedulePush(this);
+      })
+    );
+    // renames re-key the sync state
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (file instanceof TFile) migrateRenamedPath(this, oldPath, file.path);
+      })
+    );
+    // deletions schedule the orphan cleanup
+    this.registerEvent(
+      this.app.vault.on("delete", () => schedulePush(this))
+    );
+
     // notification scheduler: every minute, send triggers that arrived since the last check.
     // triggers missed while Obsidian was closed are skipped (no burst on startup).
     this.app.workspace.onLayoutReady(() => {
@@ -51,6 +76,13 @@ export default class GanttPlugin extends Plugin {
           const from = this.lastNotifyCheck;
           this.lastNotifyCheck = now;
           void checkNotifications(this, from, now);
+          // Google Calendar: pull at the configured interval, push sweeps every minute (no-op without changes)
+          const g = this.settings.gcal;
+          if (g.refreshToken && g.calendarId) {
+            const pull = g.pullEnabled && now - this.lastGcalPull >= g.pullIntervalMin * 60_000;
+            if (pull) this.lastGcalPull = now;
+            void syncGcal(this, { pull });
+          }
         }, 60_000)
       );
     });
@@ -98,6 +130,11 @@ export default class GanttPlugin extends Plugin {
     this.settings.notify = Object.assign({}, DEFAULT_SETTINGS.notify, this.settings.notify);
     this.settings.notify.leads = [...(this.settings.notify.leads ?? [])];
     this.settings.notify.sent = { ...(this.settings.notify.sent ?? {}) };
+    // merge Google Calendar settings with defaults and clone containers
+    this.settings.gcal = Object.assign({}, DEFAULT_SETTINGS.gcal, this.settings.gcal);
+    const st: typeof this.settings.gcal.state = {};
+    for (const [p, v] of Object.entries(this.settings.gcal.state ?? {})) st[p] = { ...v };
+    this.settings.gcal.state = st;
   }
 
   async saveSettings(): Promise<void> {
