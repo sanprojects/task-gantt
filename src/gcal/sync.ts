@@ -36,7 +36,7 @@ function scopeTasks(plugin: GanttPlugin): Task[] {
 function fmOf(plugin: GanttPlugin, path: string): Record<string, unknown> | undefined {
   const file = plugin.app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return undefined;
-  return plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+  return plugin.app.metadataCache.getFileCache(file)?.frontmatter;
 }
 
 // 同期対象フラグ（オプトイン設定時は gcal: true のタスクのみ）/ opt-in check

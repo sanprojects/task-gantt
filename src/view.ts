@@ -239,7 +239,7 @@ export class GanttView extends ItemView {
     const compare = this.taskComparator();
     if (this.flat) {
       // フラット：フォルダも親子も無視して全タスクを1本のソート済みリストに / flat: one sorted list, no grouping/nesting
-      this.rows = view.slice().sort(compare).map((task) => ({ kind: "task", group: "", depth: 0, task } as Row));
+      this.rows = view.slice().sort(compare).map((task) => ({ kind: "task", group: "", depth: 0, task }));
     } else {
       // フォルダグループ化＋オプションON のときだけ空フォルダもノード化 / seed empty folders only when grouping by folder and the option is on
       const folders = this.showEmptyFolders && this.groupBy === "folder" ? this.allFolders : [];
@@ -1631,8 +1631,8 @@ export class GanttView extends ItemView {
       const gf = fieldRow(tr().fieldGcal);
       const box = gf.createEl("input", { type: "checkbox" });
       const file = this.app.vault.getAbstractFileByPath(t.path);
-      const fm = file instanceof TFile
-        ? (this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined)
+      const fm: Record<string, unknown> | undefined = file instanceof TFile
+        ? this.app.metadataCache.getFileCache(file)?.frontmatter
         : undefined;
       const flag = fm?.[k.gcal];
       box.checked = !g.optInOnly || flag === true || flag === "true";

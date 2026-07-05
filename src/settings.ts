@@ -306,7 +306,7 @@ export class GanttSettingTab extends PluginSettingTab {
       .setDesc(connected ? tr().gcalStatusConnected : tr().gcalStatusNotConnected)
       .addButton((b) => {
         if (connected) {
-          b.setButtonText(tr().setGcalDisconnect).setWarning().onClick(() => void (async () => {
+          b.setButtonText(tr().setGcalDisconnect).setDestructive().onClick(() => void (async () => {
             await disconnectGoogle(this.plugin);
             this.draw();
           })());
