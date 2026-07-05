@@ -832,13 +832,30 @@ button.ogantt-cal-title:hover {
 .ogantt-cal-foot button {
   font-size: 0.78em;
 }
+.ogantt-detail-body-preview {
+  min-height: 80px;
+  margin-top: 6px;
+  padding: 4px 2px;
+  border-radius: 4px;
+  cursor: text;
+}
+.ogantt-detail-body-preview:hover {
+  background: var(--background-modifier-hover);
+}
 .ogantt-detail-body-edit {
+  display: none;
   width: 100%;
   min-height: 160px;
   margin-top: 6px;
   resize: vertical;
   font-family: var(--font-text);
   line-height: 1.5;
+}
+.ogantt-detail-body.is-editing .ogantt-detail-body-preview {
+  display: none;
+}
+.ogantt-detail-body.is-editing .ogantt-detail-body-edit {
+  display: block;
 }
 .ogantt-muted {
   color: var(--text-muted);

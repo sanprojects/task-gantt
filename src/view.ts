@@ -1,4 +1,4 @@
-import { App, ItemView, Menu, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
+import { App, ItemView, Menu, MarkdownRenderer, Modal, WorkspaceLeaf, setIcon, Notice, TFile, ViewStateResult, moment } from "obsidian";
 import type GanttPlugin from "./main";
 import { Task, Row, ZoomMode, DepType, GanttViewState, VIEW_TYPE_GANTT } from "./types";
 import {
@@ -1649,20 +1649,39 @@ export class GanttView extends ItemView {
       }
     }
 
-    // 本文 / body（テキストエリア、フォーカスを外したら保存）/ body textarea, saved on blur
+    // 本文 / body（既定は Obsidian と同じレンダリング表示。クリックで編集、フォーカスを外すと保存して表示に戻る）
+    // body: rendered like Obsidian's reading view by default; click to edit, blur saves and returns to the rendered view
     d.createEl("div", { cls: "ogantt-detail-label", text: tr().fieldBody });
-    const bodyArea = d.createEl("textarea", { cls: "ogantt-detail-body-edit" });
-    bodyArea.value = await readBody(this.app, t.path);
+    const bodyWrap = d.createDiv({ cls: "ogantt-detail-body" });
+    const preview = bodyWrap.createDiv({ cls: "ogantt-detail-body-preview markdown-rendered" });
+    const bodyArea = bodyWrap.createEl("textarea", { cls: "ogantt-detail-body-edit" });
+    let bodyText = await readBody(this.app, t.path);
+
+    const renderPreview = async (): Promise<void> => {
+      preview.empty();
+      if (bodyText.trim()) await MarkdownRenderer.render(this.app, bodyText, preview, t.path, this);
+      else preview.createSpan({ cls: "ogantt-muted", text: tr().noneLabel });
+    };
+    await renderPreview();
+
     const autosize = () => {
       // 高さを一旦リセットしてから内容に合わせる / reset, then fit to content
       bodyArea.setCssStyles({ height: "auto" });
       bodyArea.setCssStyles({ height: `${bodyArea.scrollHeight + 2}px` });
     };
+    preview.addEventListener("click", () => {
+      bodyArea.value = bodyText;
+      bodyWrap.addClass("is-editing");
+      autosize();
+      bodyArea.focus();
+    });
     bodyArea.addEventListener("input", autosize);
     bodyArea.addEventListener("blur", () => void (async () => {
-      await writeBody(this.app, this.selectedPath!, bodyArea.value);
+      bodyText = bodyArea.value;
+      await writeBody(this.app, this.selectedPath!, bodyText);
+      bodyWrap.removeClass("is-editing");
+      await renderPreview();
     })());
-    window.setTimeout(autosize, 0);
   }
 
   // 確認ダイアログを挟んでタスクを削除（ゴミ箱へ）/ confirm, then delete the task (to trash)
