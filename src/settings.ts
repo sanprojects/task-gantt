@@ -306,7 +306,11 @@ export class GanttSettingTab extends PluginSettingTab {
       .setDesc(connected ? tr().gcalStatusConnected : tr().gcalStatusNotConnected)
       .addButton((b) => {
         if (connected) {
-          b.setButtonText(tr().setGcalDisconnect).setDestructive().onClick(() => void (async () => {
+          // setDestructive() は @since 1.13.0 で minAppVersion 1.7.2 と両立しない（no-unsupported-api エラー）。
+          // setWarning() は @deprecated だが「非推奨」は Recommendation（非ブロッキング）に留まるため、こちらを使う。
+          // setDestructive() requires @since 1.13.0, incompatible with minAppVersion 1.7.2 (trips no-unsupported-api).
+          // setWarning() is @deprecated but only a non-blocking Recommendation, so it's kept here instead.
+          b.setButtonText(tr().setGcalDisconnect).setWarning().onClick(() => void (async () => {
             await disconnectGoogle(this.plugin);
             this.draw();
           })());
